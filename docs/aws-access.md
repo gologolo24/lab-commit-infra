@@ -1,7 +1,7 @@
 # AWS access: "assume your Role for privileged access"
 
 All lab work runs through one privileged role, **`lab-commit-admin`**. It's created by
-`terraform/stacks/00-bootstrap`. Nobody works directly as the IAM user.
+`terraform/bootstrap`. Nobody works directly as the IAM user.
 
 ```
 IAM user candidate03 ──(aws login, browser + MFA)──► temporary user session

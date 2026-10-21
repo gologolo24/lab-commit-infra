@@ -36,9 +36,9 @@ jobs:
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff terraform
 
-      - name: terraform validate (every stack)
+      - name: terraform validate (bootstrap, every module, every environment stack)
         run: |
-          for dir in terraform/stacks/*/; do
+          for dir in terraform/bootstrap/ terraform/modules/*/ terraform/envs/*/*/; do
             echo "::group::validate $dir"
             terraform -chdir="$dir" init -backend=false -input=false -no-color
             terraform -chdir="$dir" validate -no-color

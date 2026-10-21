@@ -1,6 +1,6 @@
-# Shared S3 backend settings for every stack (created by stacks/00-bootstrap).
-# Each stack only sets its own `key`; init with:
-#   terraform init -backend-config=../../backend.hcl
+# State backend for the "lab" environment: the state bucket of lab's AWS account
+# (created by terraform/bootstrap). scripts/tf.sh adds the per-stack key:
+#   key = envs/lab/<stack>/terraform.tfstate
 bucket       = "lab-commit-tfstate-788717064995"
 region       = "us-east-1"
 encrypt      = true
