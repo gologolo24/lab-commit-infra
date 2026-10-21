@@ -23,6 +23,9 @@ mainSteps:
       runCommand:
         - |
           $ErrorActionPreference = 'Stop'
+          # Windows PowerShell 5.1 draws a progress bar per chunk; without a console (SSM)
+          # that makes Invoke-WebRequest crawl (a download stalled at 0.7 MB). Turn it off.
+          $ProgressPreference = 'SilentlyContinue'
           $region = '{{ Region }}'
 
           # --- AWS cmdlets (preinstalled on Windows AMIs; install from PSGallery if missing)
@@ -52,7 +55,7 @@ mainSteps:
 
           # --- 2. Trust the lab root CA (public certificate) machine-wide
           $pem = (Get-SSMParameter -Name '{{ CaParameter }}' -Region $region).Value
-          $caFile = Join-Path $env:TEMP 'lab-commit-root-ca.crt'
+          $caFile = Join-Path $env:TEMP ("lab-commit-root-ca-{0}.crt" -f [guid]::NewGuid())  # unique: runs may overlap
           Set-Content -Path $caFile -Value $pem -Encoding ascii
           $ca = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($caFile)
           if (-not (Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $ca.Thumbprint)) {
@@ -64,10 +67,13 @@ mainSteps:
           # --- 3. Google Chrome (Enterprise MSI, over HTTPS through the NAT gateway)
           $chrome = Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
           if (-not (Test-Path $chrome)) {
-            $msi = Join-Path $env:TEMP 'chrome-enterprise.msi'
-            Invoke-WebRequest -Uri 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' -OutFile $msi -UseBasicParsing
-            Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait
+            # Unique file per run: two runs can overlap (e.g. a document update triggers one).
+            $msi = Join-Path $env:TEMP ("chrome-enterprise-{0}.msi" -f [guid]::NewGuid())
+            Invoke-WebRequest -Uri 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' -OutFile $msi -UseBasicParsing -TimeoutSec 600
+            $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
             Remove-Item $msi
+            # 0 = done, 3010 = done (reboot later), 1618 = another install running (next run retries)
+            if ($install.ExitCode -notin 0, 3010) { throw "Chrome MSI exit code $($install.ExitCode)" }
           }
           Write-Output "chrome: $((Get-Item $chrome).VersionInfo.ProductVersion)"
 
