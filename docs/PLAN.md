@@ -84,8 +84,8 @@ Because of this, Phase 1 below **no longer creates the repos**.
 | Pod IAM | **IRSA** (OIDC) | **EKS Pod Identity does not work on Fargate**, because it needs a DaemonSet. |
 | Ingress | **AWS Load Balancer Controller → one *internal* ALB** (IngressGroup `lab-commit`), `target-type: ip`, **HTTPS 443 only** (no :80 listener). | ingress-nginx was retired in March 2026, so it's not an option. Fargate supports IP targets only. "Surf only the secured URL." |
 | TLS | Terraform `tls` provider creates a **self-signed root CA** and a server cert with SANs `lab-commit-task`, `grafana`, `argocd` under the zone. The cert is **imported into ACM** and the ALB uses it with policy `ELBSecurityPolicy-TLS13-1-2-Res-2021-06`. The CA is added to the trusted roots on the Windows client and the k6 runner. | "SSL termination on ALB, self-signed cert, ACM". Trusting the CA gives Chrome a clean padlock. |
-| DNS | **Route 53 *private* hosted zone** `lab.internal` (variable; if you were given a hosted-zone name, reuse it as a split-horizon private zone). Records `lab-commit-task.<zone>`, `grafana.<zone>` and `argocd.<zone>` come from **external-dns**, which builds them from Ingress hosts. Its IAM role can only change this one zone. | "Not accessible publicly". The names only resolve inside the VPC. |
-| CD | **Argo CD** (Helm, on Fargate), app-of-apps, automated sync with prune and selfHeal, reconciliation every 60s | "Any CD tool on the cluster". |
+| DNS | **Route 53 *private* hosted zone** `lab-commit.internal` (variable; if you were given a hosted-zone name, reuse it as a split-horizon private zone). Records `lab-commit-task.<zone>`, `grafana.<zone>` and `argocd.<zone>` come from **external-dns**, which builds them from Ingress hosts. Its IAM role can only change this one zone. | "Not accessible publicly". The names only resolve inside the VPC. |
+| CD | **Argo CD** (Helm, on Fargate) driven by **ApplicationSets**: a `platform` set (git *files* generator over `platform/*/config.yaml`) and an `apps` set (git *directories* generator over `apps/*`), each in a **matrix** with a cluster generator (`env` label), so a new environment = a new labelled cluster + `envs/<env>/values.yaml`. Two **AppProjects** (`platform`, `apps`) limit each set to its namespaces and source repos. Automated sync with prune + selfHeal (except `loadgen`: manual), reconciliation 60s. The root objects are created **by Terraform** (the official `argocd-apps` chart), not by hand. | "Any CD tool on the cluster". Adding a component = adding a folder; reproducible bootstrap; multi-env ready. |
 | DB | **RDS PostgreSQL** (latest RDS major), single-AZ `db.t4g.micro`, encrypted with a customer-managed KMS key, `publicly_accessible=false`, `rds.force_ssl=1`, **RDS-managed master password** in Secrets Manager, **IAM database auth** for the app user | No static DB password anywhere in the app. Least privilege. |
 | Pod network isolation | **Security Groups for Pods** (`SecurityGroupPolicy`): the backend gets `sg-backend-pods`, and only that SG may reach RDS on 5432 | Kubernetes NetworkPolicy isn't enforced on Fargate. Pod SGs are the AWS-native replacement. |
 | Secrets → Kubernetes | **External Secrets Operator (ESO)**, installed by **Terraform** before Argo CD. AWS Secrets Manager is the only source of truth. Git holds only `ExternalSecret` pointers. **One `SecretStore` per namespace, each with its own IRSA role** that can read only its own secrets. Syncs every hour, so a rotated key arrives without a redeploy. | No secret values in Git **or** Terraform state. The Secrets Store CSI driver isn't an option: it needs a DaemonSet, which Fargate can't run. |
@@ -103,7 +103,7 @@ Because of this, Phase 1 below **no longer creates the repos**.
 |---|---|---|
 | **`lab-commit-infra`** | All Terraform stacks, modules, scripts (`delete-default-vpc.sh`, `eks-tunnel.sh`, `rdp-tunnel.sh`), **the main `README.md` review guide**, architecture docs and screenshots | You only |
 | **`lab-commit-app`** | `frontend/` and `backend/` (FastAPI code, tests, Dockerfile, `VERSION`, `buildspec.yml`), plus backend SQL migrations | You. The pipeline **reads** it through CodeConnections. |
-| **`lab-commit-gitops`** | Helm 3 charts (`frontend`, `backend`, `loadgen`), Argo CD app-of-apps, platform values (monitoring, KEDA), Grafana dashboards as code, k6 script | Argo CD **reads** it with a read-only deploy key. CodeBuild **writes image tags** with a write deploy key that works for this repo only. |
+| **`lab-commit-gitops`** | `apps/` (our Helm 3 charts: `frontend`, `backend`, `loadgen`, each with `envs/<env>/values.yaml`), `platform/` (third-party charts: `config.yaml` + values per env), platform values (monitoring, KEDA), Grafana dashboards as code, k6 script | Argo CD **reads** it with a read-only deploy key. CodeBuild **writes image tags** with a write deploy key that works for this repo only. |
 
 Terraform layout (multi-environment, plain Terraform, no workspaces):
 - `terraform/modules/<name>`: reusable modules (network, eks, data, access, cluster-bootstrap, cicd, irsa-role, service-pipeline). No account, region or backend inside.
@@ -121,7 +121,7 @@ Why not one monorepo: Argo CD's own best-practice docs say to keep config separa
 ```
 Laptop ──SSM port-fwd──▶ ops EC2 (AL2023, no key) ──443──▶ EKS API (private endpoint only)
 Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trusted)
-                                        │ https://lab-commit-task.lab.internal
+                                        │ https://lab-commit-task.lab-commit.internal
                                         ▼
               internal ALB (443 only, ACM-imported self-signed cert, host routing)
           ┌───────────────┬──────────────────────┬───────────────────┐
@@ -174,7 +174,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 - Create the VPC endpoints listed above (private DNS on, `sg-vpce` allows 443 from the VPC CIDR).
 - Lock the default SG with `aws_default_security_group` and no rules.
 - Turn on VPC Flow Logs to CloudWatch (KMS, 30-day retention).
-- Create the R53 private zone `lab.internal` and associate it with the VPC.
+- Create the R53 private zone `lab-commit.internal` and associate it with the VPC.
 - Generate the CA and server cert with the `tls` provider, import the cert into ACM, and store the CA PEM in SSM Parameter Store.
 - Create these security groups (all created by Terraform, with egress rules written out):
 
@@ -235,7 +235,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 - Helm releases (versions pinned), in this order:
   - **external-secrets** (namespace `external-secrets`), installed **first**, because Argo CD needs its Git key from it
   - **aws-load-balancer-controller**: IRSA, `clusterName`, **`vpcId` and `region` set explicitly** (Fargate has no IMDS), 2 replicas
-  - **external-dns**: IRSA, `--aws-zone-type=private`, `domainFilters=[lab.internal]`, `txtOwnerId`
+  - **external-dns**: IRSA, `--aws-zone-type=private`, `domainFilters=[lab-commit.internal]`, `txtOwnerId`
   - **argo-cd**: dex and notifications off, `server.insecure=true` (the ALB terminates TLS), Ingress at `argocd.<zone>`, `timeout.reconciliation=60s`
 - Secrets through ESO (no secret values in Terraform state):
   - IRSA role `lab-commit-eso-argocd`: `secretsmanager:GetSecretValue`/`DescribeSecret` on **only** `lab-commit/gitops-deploy-key/argocd-*`, plus `kms:Decrypt` on `alias/lab-commit-secrets` with `kms:ViaService = secretsmanager.us-east-1.amazonaws.com`. It trusts only the service account `argocd:eso-secretstore`.
@@ -243,11 +243,19 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
   - Terraform creates `SecretStore` + `ExternalSecret` in `argocd`. The result is the Argo CD repo secret (label `argocd.argoproj.io/secret-type: repository`, `url: git@github.com:gologolo24/lab-commit-gitops.git`, `sshPrivateKey`). Use a small local Helm chart, or a `kubectl` provider, so Terraform doesn't need the ESO CRDs at plan time.
   - Secret `lab-commit/grafana-admin`: Terraform creates the container, and its value uses an **ephemeral** `random_password` plus the **write-only** `secret_string_wo`, so it's never stored in state.
   - The **`codebuild` deploy key is never synced into the cluster.** Only CodeBuild can read it.
-- The **root Application** (app-of-apps) pointing at `lab-commit-gitops/apps/`.
-- **Done when** the internal ALB exists, `argocd.lab.internal` resolves from Windows, the `ExternalSecret` shows `SecretSynced`, and the root app shows *Synced/Healthy*.
+- **Root objects via the `argocd-apps` Helm chart** (Terraform `helm_release`, so no `kubectl apply` by hand and no CRD-at-plan-time problem):
+  - in-cluster **cluster Secret** labelled `env: lab` (the cluster generator selects on it)
+  - **AppProject `platform`**: destinations only its namespaces (monitoring, keda, …), sources only the GitOps repo + the listed Helm repos
+  - **AppProject `apps`**: destinations only `lab-commit` and `loadgen`, source only the GitOps repo, **no cluster-scoped resources**
+  - **ApplicationSet `platform`** and **ApplicationSet `apps`** (goTemplate, matrix of cluster × git generator; `templatePatch` turns automated sync off for `loadgen`)
+  - Why Terraform and not a one-time manual apply: rebuild = one command, drift visible in `plan`, matches the PDF's "infrastructure via Terraform", and Step H already runs Terraform against the cluster.
+- **Done when** the internal ALB exists, `argocd.lab-commit.internal` resolves from Windows, the `ExternalSecret` shows `SecretSynced`, and both ApplicationSets have generated their Applications, all *Synced/Healthy* (`loadgen` stays manual).
 
 ### Phase 7: GitOps repo content (Argo CD syncs it automatically)
-- `apps/`: one Application each for `monitoring`, `keda`, `backend`, `frontend`, `dashboards` (sync waves, `SkipDryRunOnMissingResource=true`, retries) and `loadgen` (**manual sync**).
+- No hand-written Application manifests: the ApplicationSets generate them from the folder layout.
+  - `platform/<name>/config.yaml` (chart, repoURL, version, namespace, syncOptions) + `values.yaml` + `envs/<env>/values.yaml`: `monitoring` (kube-prometheus-stack), `keda`, `dashboards`
+  - `apps/<name>/` (Helm chart) + `envs/<env>/values.yaml`: `backend`, `frontend`, `loadgen` (manual sync)
+  - Ordering: CRD-dependent apps use `SkipDryRunOnMissingResource=true` + retries with backoff (ApplicationSet progressive sync is an option later)
   - Namespaces get Pod Security labels through `managedNamespaceMetadata`: `restricted` for lab-commit and loadgen, `baseline` for the platform namespaces.
 - `values/monitoring.yaml` (kube-prometheus-stack, set up for Fargate):
   - `nodeExporter.enabled=false` (no DaemonSets)
@@ -312,12 +320,12 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 - **Done when** a push of `VERSION=1.0.0` runs the pipeline green and Argo CD deploys the pods.
 
 ### Phase 10: First end-to-end demo
-- In Windows Chrome, open `https://lab-commit-task.lab.internal`. You should see the padlock and *"Hello Lab-Commit v1.0.0 · DB value: 5"*.
+- In Windows Chrome, open `https://lab-commit-task.lab-commit.internal`. You should see the padlock and *"Hello Lab-Commit v1.0.0 · DB value: 5"*.
 - Update the DB value with a one-off Job, or by editing the seed through the migration. The page should change within about 5s.
 - `http://…` and any access from outside the VPC should fail.
 
 ### Phase 11: Scaling and monitoring demo
-- Open Grafana at `https://grafana.lab.internal`, then sync `loadgen` in the Argo CD UI.
+- Open Grafana at `https://grafana.lab-commit.internal`, then sync `loadgen` in the Argo CD UI.
 - Watch the RPS panel and the frontend pod count go 1 → 2 → 3 → 4. Expect about 1–2 minutes per step, because Fargate takes ~60s to start a pod.
 - When the load ends, it should fall back to 1.
 - Save Grafana screenshots and `kubectl get hpa,pods -n lab-commit -w` output in `docs/`.
@@ -363,7 +371,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 | VPC + 2 private subnets, routes, limited SGs | Console or `describe-route-tables` (only `0.0.0.0/0 → nat-…`) and the SG table |
 | EKS 1.36, private only, no node groups | `aws eks describe-cluster` (version, `endpointPublicAccess=false`), `list-nodegroups` returns `[]`, nodes are `fargate-*` |
 | LBC + ALB + SSL termination | `kubectl -n kube-system get deploy aws-load-balancer-controller`, internal ALB with an HTTPS listener and the imported ACM cert |
-| Argo CD | `https://argocd.lab.internal` from Windows |
+| Argo CD | `https://argocd.lab-commit.internal` from Windows |
 | Helm app shows "Hello Lab-Commit vX", HTTPS only | Chrome on Windows; `curl http://…` fails |
 | RDS → backend → frontend every 5s | Change the DB value and watch the page update; backend pod logs |
 | Not publicly accessible | `internal` scheme, private zone, the name doesn't resolve or connect from the laptop |
@@ -384,7 +392,8 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 ## 8. Gotchas to remember
 - A Fargate profile takes **at most 5** namespace selectors, so external-dns runs in `kube-system`.
 - `kubernetes_manifest` needs CRDs to exist at **plan** time. ESO CRDs installed in the same apply break it, so use a local chart or a kubectl provider for `SecretStore`/`ExternalSecret`.
-- Bootstrap order: ESO, then the Argo CD repo secret, then Argo CD. Argo CD can't pull anything before its key exists.
+- Bootstrap order: ESO, then the Argo CD repo secret, then Argo CD, then `argocd-apps` (projects + ApplicationSets). Argo CD can't pull anything before its key exists.
+- The ApplicationSet controller can create Applications in any project unless restricted, so every template pins its `project`, and each AppProject restricts destinations and sources.
 - Fargate pods take about 60s to start. Every pod **must** have requests and limits.
 - Jobs on Fargate keep billing until deleted, so set `ttlSecondsAfterFinished`.
 - Build images as **amd64**.
