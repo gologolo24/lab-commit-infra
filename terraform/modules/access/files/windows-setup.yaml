@@ -1,0 +1,75 @@
+schemaVersion: "2.2"
+description: >-
+  lab-commit Windows test client: local RDP user (password from Secrets Manager),
+  trust the lab root CA, install Google Chrome.
+  Idempotent: safe to run again (the association re-runs it daily).
+parameters:
+  Region:
+    type: String
+  SecretId:
+    type: String
+    description: Secrets Manager secret with {"username","password"}
+  CaParameter:
+    type: String
+    description: SSM parameter with the PEM root CA certificate
+mainSteps:
+  - action: aws:runPowerShellScript
+    name: setup
+    inputs:
+      timeoutSeconds: "1800"
+      runCommand:
+        - |
+          $ErrorActionPreference = 'Stop'
+          # Windows PowerShell 5.1 draws a progress bar per chunk; without a console (SSM)
+          # that makes Invoke-WebRequest crawl (a download stalled at 0.7 MB). Turn it off.
+          $ProgressPreference = 'SilentlyContinue'
+          $region = '{{ Region }}'
+
+          # --- AWS cmdlets (preinstalled on Windows AMIs; install from PSGallery if missing)
+          if (-not (Get-Command Get-SECSecretValue -ErrorAction SilentlyContinue)) {
+            Import-Module AWSPowerShell -ErrorAction SilentlyContinue
+          }
+          if (-not (Get-Command Get-SECSecretValue -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -Force | Out-Null
+            Install-Module -Name AWS.Tools.SecretsManager, AWS.Tools.SimpleSystemsManagement -Force -Scope AllUsers
+          }
+
+          # --- 1. Local RDP user: Remote Desktop Users only (not an administrator)
+          #        (Windows limits the user description to 48 characters)
+          $secret = (Get-SECSecretValue -SecretId '{{ SecretId }}' -Region $region).SecretString | ConvertFrom-Json
+          $password = ConvertTo-SecureString $secret.password -AsPlainText -Force
+          if (Get-LocalUser -Name $secret.username -ErrorAction SilentlyContinue) {
+            Set-LocalUser -Name $secret.username -Password $password
+          } else {
+            New-LocalUser -Name $secret.username -Password $password -PasswordNeverExpires `
+              -FullName 'Lab reviewer' -Description 'Commit lab RDP user (password: Secrets Manager)' | Out-Null
+          }
+          if (-not (Get-LocalGroupMember -Group 'Remote Desktop Users' -Member $secret.username -ErrorAction SilentlyContinue)) {
+            Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $secret.username
+          }
+          Write-Output "user '$($secret.username)' ready (Remote Desktop Users)"
+          Remove-Variable secret, password
+
+          # --- 2. Trust the lab root CA (public certificate) machine-wide
+          $pem = (Get-SSMParameter -Name '{{ CaParameter }}' -Region $region).Value
+          $caFile = Join-Path $env:TEMP ("lab-commit-root-ca-{0}.crt" -f [guid]::NewGuid())  # unique: runs may overlap
+          Set-Content -Path $caFile -Value $pem -Encoding ascii
+          $ca = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($caFile)
+          if (-not (Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $ca.Thumbprint)) {
+            Import-Certificate -FilePath $caFile -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          }
+          Remove-Item $caFile
+          Write-Output "trusted CA: $($ca.Subject) $($ca.Thumbprint)"
+
+          # --- 3. Google Chrome (Enterprise MSI, over HTTPS through the NAT gateway)
+          $chrome = Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
+          if (-not (Test-Path $chrome)) {
+            # Unique file per run: two runs can overlap (e.g. a document update triggers one).
+            $msi = Join-Path $env:TEMP ("chrome-enterprise-{0}.msi" -f [guid]::NewGuid())
+            Invoke-WebRequest -Uri 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' -OutFile $msi -UseBasicParsing -TimeoutSec 600
+            $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+            Remove-Item $msi
+            # 0 = done, 3010 = done (reboot later), 1618 = another install running (next run retries)
+            if ($install.ExitCode -notin 0, 3010) { throw "Chrome MSI exit code $($install.ExitCode)" }
+          }
+          Write-Output "chrome: $((Get-Item $chrome).VersionInfo.ProductVersion)"
