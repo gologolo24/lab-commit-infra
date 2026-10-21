@@ -35,13 +35,14 @@ mainSteps:
           }
 
           # --- 1. Local RDP user: Remote Desktop Users only (not an administrator)
+          #        (Windows limits the user description to 48 characters)
           $secret = (Get-SECSecretValue -SecretId '{{ SecretId }}' -Region $region).SecretString | ConvertFrom-Json
           $password = ConvertTo-SecureString $secret.password -AsPlainText -Force
           if (Get-LocalUser -Name $secret.username -ErrorAction SilentlyContinue) {
             Set-LocalUser -Name $secret.username -Password $password
           } else {
             New-LocalUser -Name $secret.username -Password $password -PasswordNeverExpires `
-              -FullName 'Lab reviewer' -Description 'RDP user for the Commit lab (password in Secrets Manager)' | Out-Null
+              -FullName 'Lab reviewer' -Description 'Commit lab RDP user (password: Secrets Manager)' | Out-Null
           }
           if (-not (Get-LocalGroupMember -Group 'Remote Desktop Users' -Member $secret.username -ErrorAction SilentlyContinue)) {
             Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $secret.username
