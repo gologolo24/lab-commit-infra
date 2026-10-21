@@ -1,0 +1,7 @@
+apiVersion: v2
+name: argocd-repo-secret
+description: >-
+  Argo CD's credentials for the GitOps repository, synced by External Secrets
+  from AWS Secrets Manager. The private key never passes through Terraform or Git.
+type: application
+version: 0.1.0

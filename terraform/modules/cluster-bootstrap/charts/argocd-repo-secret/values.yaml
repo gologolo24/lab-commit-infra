@@ -1,0 +1,6 @@
+# Set by Terraform (modules/cluster-bootstrap).
+region: ""
+roleArn: ""            # IRSA role allowed to read ONLY the deploy-key secret
+deployKeySecret: ""    # Secrets Manager secret name or ARN
+repoUrl: ""            # git@github.com:<owner>/<repo>.git
+refreshInterval: 1h    # a rotated key is picked up within this interval
