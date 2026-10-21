@@ -31,9 +31,10 @@ resource "aws_db_parameter_group" "this" {
     value = "1"
   }
 
+  # PostgreSQL 18: a list of what to log (it was on/off before). This is what "on" used to mean.
   parameter {
     name  = "log_connections"
-    value = "1"
+    value = "receipt,authentication,authorization"
   }
 
   parameter {
