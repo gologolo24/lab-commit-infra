@@ -27,7 +27,6 @@ data "terraform_remote_state" "network" {
 
 locals {
   network = data.terraform_remote_state.network.outputs
-  zone    = local.env.dns.zone_name
 }
 
 module "access" {
@@ -45,10 +44,4 @@ module "access" {
   logs_kms_key_arn          = local.network.logs_kms_key_arn
 
   secrets_kms_key_arn = data.terraform_remote_state.bootstrap.outputs.secrets_kms_key_arn
-
-  chrome_start_urls = [
-    "https://${local.env.dns.app_hostname}.${local.zone}",
-    "https://grafana.${local.zone}",
-    "https://argocd.${local.zone}",
-  ]
 }

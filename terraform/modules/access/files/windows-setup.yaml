@@ -1,7 +1,7 @@
 schemaVersion: "2.2"
 description: >-
   lab-commit Windows test client: local RDP user (password from Secrets Manager),
-  trust the lab root CA, install Google Chrome, set Chrome start pages.
+  trust the lab root CA, install Google Chrome.
   Idempotent: safe to run again (the association re-runs it daily).
 parameters:
   Region:
@@ -12,9 +12,6 @@ parameters:
   CaParameter:
     type: String
     description: SSM parameter with the PEM root CA certificate
-  StartUrls:
-    type: String
-    description: Comma-separated URLs Chrome opens on start
 mainSteps:
   - action: aws:runPowerShellScript
     name: setup
@@ -76,14 +73,3 @@ mainSteps:
             if ($install.ExitCode -notin 0, 3010) { throw "Chrome MSI exit code $($install.ExitCode)" }
           }
           Write-Output "chrome: $((Get-Item $chrome).VersionInfo.ProductVersion)"
-
-          # --- 4. Chrome start pages (machine policy)
-          $policy = 'HKLM:\SOFTWARE\Policies\Google\Chrome'
-          New-Item -Path "$policy\RestoreOnStartupURLs" -Force | Out-Null
-          Set-ItemProperty -Path $policy -Name RestoreOnStartup -Value 4 -Type DWord
-          $i = 1
-          foreach ($url in '{{ StartUrls }}'.Split(',')) {
-            Set-ItemProperty -Path "$policy\RestoreOnStartupURLs" -Name "$i" -Value $url
-            $i++
-          }
-          Write-Output "chrome start pages set"

@@ -24,7 +24,6 @@ resource "aws_ssm_association" "windows_setup" {
     Region      = local.region
     SecretId    = aws_secretsmanager_secret.windows.name
     CaParameter = var.ca_cert_parameter
-    StartUrls   = join(",", var.chrome_start_urls)
   }
 
   depends_on = [aws_secretsmanager_secret_version.windows]

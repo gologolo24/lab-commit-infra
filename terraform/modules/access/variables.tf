@@ -54,11 +54,6 @@ variable "ca_cert_parameter" {
   default     = "/lab-commit/tls/ca-cert"
 }
 
-variable "chrome_start_urls" {
-  description = "Pages Chrome opens on start."
-  type        = list(string)
-}
-
 variable "logs_kms_key_arn" {
   description = "KMS key for the Session Manager CloudWatch log group."
   type        = string
