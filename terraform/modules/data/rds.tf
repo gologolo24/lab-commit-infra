@@ -27,8 +27,10 @@ resource "aws_db_parameter_group" "this" {
   description = "${var.name}: TLS required, connection logging"
 
   parameter {
-    name  = "rds.force_ssl" # refuse plain-text connections
+    name  = "rds.force_ssl" # refuse plain-text connections (also the PostgreSQL 18 default)
     value = "1"
+    # RDS stores this parameter as pending-reboot; matching it avoids a permanent plan diff.
+    apply_method = "pending-reboot"
   }
 
   # PostgreSQL 18: a list of what to log (it was on/off before). This is what "on" used to mean.
