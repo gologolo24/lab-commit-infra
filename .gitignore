@@ -39,3 +39,6 @@ venv/
 .idea/
 .vscode/
 *.swp
+
+# Lock files belong to root modules (bootstrap, envs/*/*), not to reusable modules
+terraform/modules/**/.terraform.lock.hcl
