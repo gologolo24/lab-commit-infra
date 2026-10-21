@@ -1,6 +1,14 @@
-# Session Manager preferences for this account and region: every shell session
-# is KMS-encrypted and logged to CloudWatch, idle sessions close after 20 min.
-# (This document name is fixed by AWS; it didn't exist in the account before.)
+# Session Manager settings for OUR shell sessions only.
+#
+# The lab AWS account is shared with other candidates. AWS has exactly one
+# account-wide default (the document "SSM-SessionManagerRunShell") that applies
+# to everyone's sessions. Forcing our KMS key there would break other people's
+# sessions (their instances can't use our key), so we leave the default alone.
+#
+# Instead, our own Session document applies only when a session names it:
+#   aws ssm start-session --target <our instance> --document-name lab-commit-shell
+# Our shells are then KMS-encrypted (on top of TLS) and logged to CloudWatch.
+# Tunnels (EKS API, RDP) use AWS's port-forwarding documents (TLS-encrypted).
 
 resource "aws_cloudwatch_log_group" "ssm_sessions" {
   name              = "/${var.name}/ssm-sessions"
@@ -8,14 +16,14 @@ resource "aws_cloudwatch_log_group" "ssm_sessions" {
   kms_key_id        = var.logs_kms_key_arn
 }
 
-resource "aws_ssm_document" "session_preferences" {
-  name            = "SSM-SessionManagerRunShell"
+resource "aws_ssm_document" "shell_session" {
+  name            = "${var.name}-shell"
   document_type   = "Session"
   document_format = "JSON"
 
   content = jsonencode({
     schemaVersion = "1.0"
-    description   = "Session Manager preferences (${var.name})"
+    description   = "${var.name}: KMS-encrypted, logged shell sessions on the lab instances"
     sessionType   = "Standard_Stream"
     inputs = {
       s3BucketName                = ""

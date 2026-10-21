@@ -17,3 +17,7 @@ output "windows_setup_association_id" {
 output "session_log_group" {
   value = module.access.session_log_group
 }
+
+output "shell_session_document" {
+  value = module.access.shell_session_document
+}

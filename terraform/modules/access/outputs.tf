@@ -18,3 +18,8 @@ output "windows_setup_association_id" {
 output "session_log_group" {
   value = aws_cloudwatch_log_group.ssm_sessions.name
 }
+
+output "shell_session_document" {
+  description = "Use with: aws ssm start-session --target <instance> --document-name <this>"
+  value       = aws_ssm_document.shell_session.name
+}
