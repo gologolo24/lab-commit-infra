@@ -1,0 +1,41 @@
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Variable files can hold secrets; commit only *.tfvars.example
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# NOTE: .terraform.lock.hcl IS committed (pins provider versions)
+
+# --- Keys / certificates / secrets: never commit ---
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.env
+.env.*
+kubeconfig*
+
+# --- Python (helper scripts) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- OS / editors ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
