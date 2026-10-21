@@ -273,7 +273,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
   - **Argo CD PreSync hook Job** `db-migrate` (SA `db-migrator`, same pod SG, `ttlSecondsAfterFinished`)
 - `loadgen` chart:
   - the k6 script in a ConfigMap, run by an Argo CD Sync-hook Job (`hook-delete-policy: BeforeHookCreation`)
-  - CA ConfigMap with `SSL_CERT_FILE` set
+  - CA ConfigMap with `SSL_CERT_FILE` set. The CA cert comes from SSM `/lab-commit/tls/ca-cert`, its only home (it isn't stored in Git)
   - `SecurityGroupPolicy` = [cluster SG, `sg-loadgen-pods`]
   - stages: ~8 rps (1 pod) → 15 (2) → 25 (3) → 45 rps (4, the max) → 0, so you can watch it scale back down to 1
 - `dashboards/`: Grafana JSON in ConfigMaps labeled `grafana_dashboard: "1"`:

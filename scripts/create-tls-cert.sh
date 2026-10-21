@@ -13,8 +13,8 @@
 #   3. Imports it into ACM. If one is already imported for the same name, it is
 #      re-imported into the SAME ARN, so the ALB keeps working.
 #   4. Publishes the CA *certificate* (public, not secret) to SSM Parameter Store
-#      /lab-commit/tls/ca-cert (the Windows client trusts it from there) and
-#      saves a copy in certs/ (for the k6 load generator).
+#      /lab-commit/tls/ca-cert. That's its only home: the Windows client and the
+#      k6 load generator read it from there. Nothing is written into the repo.
 #   5. Deletes everything else. The server key exists only inside ACM, and the CA
 #      key is thrown away: nobody can issue more certificates that clients trust.
 #      Re-running creates a fresh CA (clients then need the new CA cert).
@@ -27,8 +27,6 @@ ZONE="${ZONE:-lab-commit.internal}"
 HOSTS="lab-commit-task grafana argocd"
 APP_FQDN="lab-commit-task.$ZONE"
 CA_PARAM="/lab-commit/tls/ca-cert"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CA_COPY="$REPO_ROOT/certs/lab-commit-root-ca.crt"
 
 case "$(openssl version)" in
   "OpenSSL 3."* | "OpenSSL 4."*) ;;
@@ -96,9 +94,6 @@ echo "== 4. publish the CA certificate (public)"
 aws ssm put-parameter --name "$CA_PARAM" --type String --overwrite \
   --description "lab-commit root CA certificate (public). Clients trust it. Set by scripts/create-tls-cert.sh" \
   --value "file://$tmp/ca.crt" --query Version --output text | sed 's/^/   SSM parameter version: /'
-mkdir -p "$(dirname "$CA_COPY")"
-cp "$tmp/ca.crt" "$CA_COPY"
-echo "   copy: ${CA_COPY#"$REPO_ROOT"/}"
 
 echo "== summary"
 echo "   ACM certificate : $arn"

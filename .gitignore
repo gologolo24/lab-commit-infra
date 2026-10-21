@@ -22,8 +22,6 @@ terraform.rc
 *.pem
 *.key
 *.crt
-# Exception: the lab's PUBLIC root CA certificate (no key). Clients need it to trust the ALB.
-!certs/lab-commit-root-ca.crt
 *.p12
 *.pfx
 .env
