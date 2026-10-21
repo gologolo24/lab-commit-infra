@@ -1,5 +1,5 @@
 terraform {
-  # 1.10+ is required later for S3 native state locking (use_lockfile).
+  # 1.10+ is required for S3 native state locking (use_lockfile).
   required_version = ">= 1.10"
 
   required_providers {
@@ -9,6 +9,9 @@ terraform {
     }
   }
 
-  # Local state for now. Step C creates the S3 state bucket and migrates
-  # this state into it (terraform init -migrate-state).
+  # This stack creates the bucket it stores its own state in. It started with
+  # local state and was migrated with -migrate-state once the bucket existed.
+  backend "s3" {
+    key = "stacks/00-bootstrap/terraform.tfstate"
+  }
 }

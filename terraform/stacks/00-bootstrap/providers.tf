@@ -1,6 +1,8 @@
-# Credentials come from the environment (AWS_PROFILE), never from this file.
-# 00-bootstrap is the only stack applied as the IAM user (AWS_PROFILE=commit-base),
-# because it creates the privileged role that every other stack runs as.
+# Credentials come from the environment, never from this file:
+#   AWS_PROFILE=commit-lab   (the lab-commit-admin role, with MFA)
+#
+# The very first apply (which created the admin role) ran as the IAM user
+# (AWS_PROFILE=commit-base). Since then this stack runs as the role too.
 provider "aws" {
   region = var.region
 

@@ -10,6 +10,24 @@ variable "account_id" {
   default     = "788717064995"
 }
 
+variable "github_owner" {
+  description = "GitHub account that owns the lab repositories."
+  type        = string
+  default     = "gologolo24"
+}
+
+variable "gitops_repo" {
+  description = "GitOps repository that Argo CD reads and CodeBuild updates."
+  type        = string
+  default     = "lab-commit-gitops"
+}
+
+variable "kms_deletion_window_days" {
+  description = "Waiting period before a scheduled KMS key deletion. Short because this is a lab."
+  type        = number
+  default     = 7
+}
+
 variable "admin_trusted_user" {
   description = "IAM user allowed to assume the privileged admin role (with MFA)."
   type        = string
