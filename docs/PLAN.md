@@ -105,8 +105,12 @@ Because of this, Phase 1 below **no longer creates the repos**.
 | **`lab-commit-app`** | `frontend/` and `backend/` (FastAPI code, tests, Dockerfile, `VERSION`, `buildspec.yml`), plus backend SQL migrations | You. The pipeline **reads** it through CodeConnections. |
 | **`lab-commit-gitops`** | Helm 3 charts (`frontend`, `backend`, `loadgen`), Argo CD app-of-apps, platform values (monitoring, KEDA), Grafana dashboards as code, k6 script | Argo CD **reads** it with a read-only deploy key. CodeBuild **writes image tags** with a write deploy key that works for this repo only. |
 
-Terraform stacks in `lab-commit-infra/terraform/stacks/`, applied in this order, each with its own state file:
-`00-bootstrap` → `10-network` → `20-eks` → `30-data` → `40-access` → `50-cluster-bootstrap` → `60-cicd`. Shared modules: `irsa-role`, `service-pipeline`.
+Terraform layout (multi-environment, plain Terraform, no workspaces):
+- `terraform/modules/<name>`: reusable modules (network, eks, data, access, cluster-bootstrap, cicd, irsa-role, service-pipeline). No account, region or backend inside.
+- `terraform/bootstrap/`: once per AWS account (admin role, state bucket, KMS keys, secret containers).
+- `terraform/envs/<env>/`: one folder per environment. `env.yaml` is the only file with its settings, `backend.hcl` names its state bucket, and one thin stack folder calls each module: `10-network` → `20-eks` → `30-data` → `40-access` → `50-cluster-bootstrap` → `60-cicd`.
+- `scripts/tf.sh <env> <stack> <args>` derives the state key `envs/<env>/<stack>/terraform.tfstate` from the folder and picks the AWS profile from `env.yaml`.
+- New environment: copy `envs/lab`, edit `env.yaml` (+ `backend.hcl`/bootstrap if it's another account). Later, pin module versions per environment with Git tags to promote changes safely.
 
 Why not one monorepo: Argo CD's own best-practice docs say to keep config separate from source. With a separate GitOps repo, the pipeline's write key can only change deployment config, not app code or infra. You also avoid CI loops, and the history of what was deployed stays clean. Each of the other two repos gets a short README that links back to the infra README.
 
@@ -155,7 +159,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 3. Check the quotas: Fargate On-Demand vCPU, EIPs, and VPCs.
 - **Done when** `aws sts get-caller-identity` shows `assumed-role/<YourRole>`, and `gh auth status` is OK.
 
-### Phase 1: Bootstrap (`terraform/stacks/00-bootstrap`, local state that you then migrate to S3)
+### Phase 1: Bootstrap (`terraform/bootstrap`, local state that you then migrate to S3)
 - Create a KMS CMK for state (rotation on) and an S3 state bucket: versioning on, SSE-KMS, Block Public Access, a TLS-only bucket policy.
 - The repos already exist (section 0). Terraform creates only the **empty, KMS-encrypted Secrets Manager containers** for the 2 deploy keys of `lab-commit-gitops`: `argocd` (read-only) and `codebuild` (write). The operator then runs `scripts/create-gitops-deploy-keys.sh`, which generates the keys locally, uploads the private halves to Secrets Manager, registers the public halves on GitHub, and deletes the local copies. **Private keys never enter Terraform state or Git.**
 - **Decision (Option 1):** CodePipeline + CodeBuild do the release. **GitHub Actions runs static checks on every PR** (fmt, validate, tflint, trivy) with no AWS access. OIDC isn't used: both Git flows go AWS → GitHub, and GitHub doesn't accept AWS/Kubernetes OIDC tokens for Git.
@@ -369,7 +373,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 | Pod-count dashboard | The Grafana "Pods" dashboard |
 | Load generator + scale 1→4→1 at >10 rps | Sync loadgen in Argo CD; Grafana and `kubectl get hpa -w` |
 | Code in GitHub, CodePipeline deploys new version | 3 repos; v1.0.0 → v1.0.1 pipeline run with the smoke test |
-| Terraform | `terraform/stacks/*`, `terraform plan` shows no drift |
+| Terraform | `terraform/{modules,bootstrap,envs}`, `scripts/tf.sh lab <stack> plan` shows no drift |
 | No secrets in Git or state | `secret-scan` (gitleaks) green on every PR. `terraform state pull \| grep -c 'PRIVATE KEY'` = 0. `kubectl get externalsecret -A` shows `SecretSynced`. |
 
 ## 7. Teardown (order matters)

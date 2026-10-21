@@ -14,7 +14,7 @@ provider "aws" {
       Project     = "lab-commit"
       Environment = "lab"
       ManagedBy   = "terraform"
-      Stack       = "00-bootstrap"
+      Stack       = "bootstrap"
       Repository  = "github.com/gologolo24/lab-commit-infra"
     }
   }

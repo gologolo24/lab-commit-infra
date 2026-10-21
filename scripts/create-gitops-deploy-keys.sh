@@ -6,7 +6,7 @@
 #
 # For each key:
 #   1. generate an ed25519 key pair in a private temp folder (mode 700)
-#   2. upload the private key to its Secrets Manager secret (created by Terraform 00-bootstrap)
+#   2. upload the private key to its Secrets Manager secret (created by terraform/bootstrap)
 #   3. remove the old deploy key with the same title from GitHub (rotation)
 #   4. register the new public key as a deploy key (read-only, or write for codebuild)
 #   5. delete the temp folder: the private key only exists in Secrets Manager

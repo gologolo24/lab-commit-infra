@@ -9,7 +9,7 @@ output "state_bucket" {
 }
 
 output "state_kms_key_arn" {
-  description = "KMS key for Terraform state (used as kms_key_id in terraform/backend.hcl)."
+  description = "KMS key for Terraform state (kms_key_id in the backend.hcl files)."
   value       = aws_kms_key.tfstate.arn
 }
 
