@@ -48,6 +48,16 @@ aws sts get-caller-identity --profile commit-lab-mfa    # about once an hour: en
 export AWS_PROFILE=commit-lab                           # everything else
 ```
 
+Things to know about the MFA session:
+
+- **Enter the MFA code in your own Terminal window.** Tools without a real terminal (scripts, Terraform, Claude Code's `!` commands) can't read the typed code and fail with `GetPassWarning: Can not control echo on the terminal`.
+- **About 45 usable minutes, not 60.** The AWS CLI refreshes credentials 15 minutes before they expire, and that refresh needs a new MFA code. Inside a script or Terraform run it fails instead. Refresh before long applies.
+- **To force a fresh full session** (zsh-safe, works even when the cache is empty):
+
+  ```bash
+  find ~/.aws/cli/cache -name '*.json' -delete; aws sts get-caller-identity --profile commit-lab-mfa
+  ```
+
 ## Proof (2026-10-21)
 
 | Test | Result |

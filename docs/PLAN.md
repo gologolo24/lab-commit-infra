@@ -69,7 +69,7 @@ Steps:
 5. `gh repo create gologolo24/<name> --private --source . --remote origin --push --description "<…>"` for each repo. The remote is `git@github.com:gologolo24/<name>.git`.
 6. Check with `gh repo list gologolo24`, which should show 3 new **private** repos. Later, add the Commit reviewers as **read** collaborators with `gh api -X PUT repos/gologolo24/<repo>/collaborators/<user> -f permission=pull`.
 
-Because of this, Phase 1 below **no longer creates the repos**. The Terraform GitHub provider in `00-bootstrap` only manages the 2 deploy keys on `lab-commit-gitops`.
+Because of this, Phase 1 below **no longer creates the repos**.
 
 ---
 
@@ -156,7 +156,8 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 
 ### Phase 1: Bootstrap (`terraform/stacks/00-bootstrap`, local state that you then migrate to S3)
 - Create a KMS CMK for state (rotation on) and an S3 state bucket: versioning on, SSE-KMS, Block Public Access, a TLS-only bucket policy.
-- The repos already exist (section 0). Using the GitHub provider (`GITHUB_TOKEN=$(gh auth token)`), generate 2 ed25519 deploy keys for `lab-commit-gitops`: `argocd` (read-only) and `codebuild` (write). Store the private keys in **Secrets Manager**.
+- The repos already exist (section 0). Terraform creates only the **empty, KMS-encrypted Secrets Manager containers** for the 2 deploy keys of `lab-commit-gitops`: `argocd` (read-only) and `codebuild` (write). The operator then runs `scripts/create-gitops-deploy-keys.sh`, which generates the keys locally, uploads the private halves to Secrets Manager, registers the public halves on GitHub, and deletes the local copies. **Private keys never enter Terraform state or Git.**
+- **Decision (Option 1):** CodePipeline + CodeBuild do the release. **GitHub Actions runs static checks on every PR** (fmt, validate, tflint, trivy) with no AWS access. OIDC isn't used: both Git flows go AWS → GitHub, and GitHub doesn't accept AWS/Kubernetes OIDC tokens for Git.
 - Run `scripts/delete-default-vpc.sh us-east-1`. It deletes the IGW, then the subnets, then the VPC. Optionally run it for all regions.
 - Commit pre-commit hooks: `terraform fmt/validate`, tflint, trivy config, gitleaks, ruff.
 - **Done when** `aws ec2 describe-vpcs --filters Name=isDefault,Values=true` returns nothing, the 3 repos exist, and the state has moved to S3.
@@ -375,7 +376,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 - kube-prometheus-stack needs `ServerSideApply` in Argo CD.
 - Argo CD can't receive GitHub webhooks (it's private), so it polls every 60s.
 - The CodeConnections connection starts as *Pending* until you finish it in the console.
-- The tls private key and the deploy keys end up in the Terraform state and Secrets Manager. The state is encrypted with KMS and access is restricted, so mention this in the README.
+- Deploy keys are kept out of Terraform state (script-managed). Apply the same idea to the TLS private key in Step D if possible. Anything sensitive that does land in state is protected by the KMS-encrypted, private state bucket.
 - Cost: the EKS control plane, Fargate pods, Regional NAT, interface endpoints and the Windows instance all bill hourly. Stop the Windows instance when idle, and destroy everything after the review.
 
 ## 9. References
