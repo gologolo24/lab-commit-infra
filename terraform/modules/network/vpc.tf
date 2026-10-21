@@ -1,8 +1,10 @@
 # VPC with exactly two private subnets and no public subnets.
 #
 # Internet egress (image pulls, GitHub) goes through a *Regional* NAT gateway.
-# It needs an attached internet gateway, but no public subnet: no route table
-# points at the IGW, so nothing in this VPC can be reached from the internet.
+# It needs an attached internet gateway, but no public subnet: no SUBNET's route
+# table points at the IGW, so nothing in this VPC can be reached from the internet.
+# (The only IGW route lives in the NAT gateway's own AWS-managed route table,
+# which is associated with the NAT itself and can't be linked to subnets.)
 
 resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr
@@ -44,7 +46,8 @@ resource "aws_subnet" "private" {
   }
 }
 
-# Required by the Regional NAT gateway for egress. No subnet routes to it.
+# Required by the Regional NAT gateway for egress. No subnet routes to it;
+# AWS adds 0.0.0.0/0 -> IGW to the NAT's own managed route table automatically.
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
