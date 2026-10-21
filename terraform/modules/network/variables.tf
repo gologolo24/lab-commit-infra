@@ -48,6 +48,7 @@ variable "interface_endpoints" {
     "ssmmessages",    # Session Manager / port forwarding
     "ec2messages",    # SSM agent messaging
     "secretsmanager", # External Secrets Operator, CodeBuild deploy key
+    "kms",            # Session Manager KMS encryption from the ops instance (VPC-only egress)
   ]
 }
 

@@ -1,0 +1,82 @@
+schemaVersion: "2.2"
+description: >-
+  lab-commit Windows test client: local RDP user (password from Secrets Manager),
+  trust the lab root CA, install Google Chrome, set Chrome start pages.
+  Idempotent: safe to run again (the association re-runs it daily).
+parameters:
+  Region:
+    type: String
+  SecretId:
+    type: String
+    description: Secrets Manager secret with {"username","password"}
+  CaParameter:
+    type: String
+    description: SSM parameter with the PEM root CA certificate
+  StartUrls:
+    type: String
+    description: Comma-separated URLs Chrome opens on start
+mainSteps:
+  - action: aws:runPowerShellScript
+    name: setup
+    inputs:
+      timeoutSeconds: "1800"
+      runCommand:
+        - |
+          $ErrorActionPreference = 'Stop'
+          $region = '{{ Region }}'
+
+          # --- AWS cmdlets (preinstalled on Windows AMIs; install from PSGallery if missing)
+          if (-not (Get-Command Get-SECSecretValue -ErrorAction SilentlyContinue)) {
+            Import-Module AWSPowerShell -ErrorAction SilentlyContinue
+          }
+          if (-not (Get-Command Get-SECSecretValue -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -Force | Out-Null
+            Install-Module -Name AWS.Tools.SecretsManager, AWS.Tools.SimpleSystemsManagement -Force -Scope AllUsers
+          }
+
+          # --- 1. Local RDP user: Remote Desktop Users only (not an administrator)
+          $secret = (Get-SECSecretValue -SecretId '{{ SecretId }}' -Region $region).SecretString | ConvertFrom-Json
+          $password = ConvertTo-SecureString $secret.password -AsPlainText -Force
+          if (Get-LocalUser -Name $secret.username -ErrorAction SilentlyContinue) {
+            Set-LocalUser -Name $secret.username -Password $password
+          } else {
+            New-LocalUser -Name $secret.username -Password $password -PasswordNeverExpires `
+              -FullName 'Lab reviewer' -Description 'RDP user for the Commit lab (password in Secrets Manager)' | Out-Null
+          }
+          if (-not (Get-LocalGroupMember -Group 'Remote Desktop Users' -Member $secret.username -ErrorAction SilentlyContinue)) {
+            Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $secret.username
+          }
+          Write-Output "user '$($secret.username)' ready (Remote Desktop Users)"
+          Remove-Variable secret, password
+
+          # --- 2. Trust the lab root CA (public certificate) machine-wide
+          $pem = (Get-SSMParameter -Name '{{ CaParameter }}' -Region $region).Value
+          $caFile = Join-Path $env:TEMP 'lab-commit-root-ca.crt'
+          Set-Content -Path $caFile -Value $pem -Encoding ascii
+          $ca = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($caFile)
+          if (-not (Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $ca.Thumbprint)) {
+            Import-Certificate -FilePath $caFile -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          }
+          Remove-Item $caFile
+          Write-Output "trusted CA: $($ca.Subject) $($ca.Thumbprint)"
+
+          # --- 3. Google Chrome (Enterprise MSI, over HTTPS through the NAT gateway)
+          $chrome = Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
+          if (-not (Test-Path $chrome)) {
+            $msi = Join-Path $env:TEMP 'chrome-enterprise.msi'
+            Invoke-WebRequest -Uri 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' -OutFile $msi -UseBasicParsing
+            Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait
+            Remove-Item $msi
+          }
+          Write-Output "chrome: $((Get-Item $chrome).VersionInfo.ProductVersion)"
+
+          # --- 4. Chrome start pages (machine policy)
+          $policy = 'HKLM:\SOFTWARE\Policies\Google\Chrome'
+          New-Item -Path "$policy\RestoreOnStartupURLs" -Force | Out-Null
+          Set-ItemProperty -Path $policy -Name RestoreOnStartup -Value 4 -Type DWord
+          $i = 1
+          foreach ($url in '{{ StartUrls }}'.Split(',')) {
+            Set-ItemProperty -Path "$policy\RestoreOnStartupURLs" -Name "$i" -Value $url
+            $i++
+          }
+          Write-Output "chrome start pages set"
