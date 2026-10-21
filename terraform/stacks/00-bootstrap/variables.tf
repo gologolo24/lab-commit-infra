@@ -23,7 +23,9 @@ variable "admin_role_name" {
 }
 
 variable "admin_max_session_seconds" {
-  description = "Maximum session length for the admin role. 4 hours covers a long EKS apply."
+  # Note: sessions started from `aws login` credentials count as role chaining,
+  # which AWS always caps at 1 hour regardless of this value.
+  description = "Maximum session length for the admin role (applies when not role chaining)."
   type        = number
   default     = 14400
 
