@@ -30,7 +30,7 @@ region = us-east-1
 [profile commit-lab-mfa]     ; assumes the role, asks for the MFA code
 role_arn          = arn:aws:iam::788717064995:role/lab-commit-admin
 source_profile    = commit-base
-mfa_serial        = arn:aws:iam::788717064995:mfa/IPhone15
+mfa_serial        = arn:aws:iam::788717064995:mfa/<your-mfa-device>
 role_session_name = candidate03
 duration_seconds  = 3600
 region = us-east-1

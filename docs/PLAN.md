@@ -12,7 +12,7 @@ Commit sent a home assignment (`~/Downloads/AWS LabS Commit- EKS Services and Pi
 - a CodePipeline that ships new frontend versions
 - all code in GitHub, with a README for reviewers
 
-`/Users/golo/Commit` is empty, so this starts from scratch.
+`~/Commit` was empty, so this starts from scratch.
 **Your choices:** GitHub · Python (FastAPI) · `us-east-1`.
 
 ---
@@ -57,7 +57,7 @@ Here's what's on this Mac now:
 Steps:
 1. `brew install gh` (I run this).
 2. **You** run `! gh auth login`, choosing GitHub.com → SSH (pick the existing `id_ed25519_github_personal.pub`, and don't upload it again) → browser login as **gologolo24**.
-3. Create `/Users/golo/Commit/{lab-commit-infra,lab-commit-app,lab-commit-gitops}`. Each gets:
+3. Create `~/Commit/{lab-commit-infra,lab-commit-app,lab-commit-gitops}`. Each gets:
    - `git init -b main`
    - a starter `README.md` (what the repo is for, with links to the other two)
    - a `.gitignore`:
@@ -79,7 +79,7 @@ Because of this, Phase 1 below **no longer creates the repos**.
 |---|---|---|
 | Compute | **EKS on Fargate only** (Fargate profiles, 0 node groups, 0 EC2 nodes) | "Node Groups are NOT ALLOWED". Fargate runs pods only in private subnets. Each pod runs in its own VM. |
 | Network | VPC `10.20.0.0/16` with **exactly 2 private subnets** (`/19`, us-east-1a/b). Egress goes through a **Regional NAT Gateway** (`aws_nat_gateway` with `availability_mode = "regional"`), which needs an attached IGW but **no public subnet**. | Matches "VPC + 2 Private Subnets" literally. Nothing in the VPC can be public. Pods can still pull images and reach GitHub. |
-| AWS traffic | VPC endpoints: S3 (gateway), plus `ecr.api`, `ecr.dkr`, `sts`, `logs`, `ssm`, `ssmmessages`, `ec2messages` | Keeps AWS API traffic off the NAT and the internet. |
+| AWS traffic | VPC endpoints: S3 (gateway), plus `ecr.api`, `ecr.dkr`, `sts`, `logs`, `ssm`, `ssmmessages`, `ec2messages`, `secretsmanager` (for External Secrets). The final set is decided in Step D (cost vs. privacy). | Keeps AWS API traffic off the NAT and the internet. |
 | EKS API | **Private endpoint only.** Admin access goes through an SSM port-forward via a tiny Linux "ops" instance (no key, no inbound rules). | "Only private" plus security best practice. |
 | Pod IAM | **IRSA** (OIDC) | **EKS Pod Identity does not work on Fargate**, because it needs a DaemonSet. |
 | Ingress | **AWS Load Balancer Controller → one *internal* ALB** (IngressGroup `lab-commit`), `target-type: ip`, **HTTPS 443 only** (no :80 listener). | ingress-nginx was retired in March 2026, so it's not an option. Fargate supports IP targets only. "Surf only the secured URL." |
@@ -88,6 +88,7 @@ Because of this, Phase 1 below **no longer creates the repos**.
 | CD | **Argo CD** (Helm, on Fargate), app-of-apps, automated sync with prune and selfHeal, reconciliation every 60s | "Any CD tool on the cluster". |
 | DB | **RDS PostgreSQL** (latest RDS major), single-AZ `db.t4g.micro`, encrypted with a customer-managed KMS key, `publicly_accessible=false`, `rds.force_ssl=1`, **RDS-managed master password** in Secrets Manager, **IAM database auth** for the app user | No static DB password anywhere in the app. Least privilege. |
 | Pod network isolation | **Security Groups for Pods** (`SecurityGroupPolicy`): the backend gets `sg-backend-pods`, and only that SG may reach RDS on 5432 | Kubernetes NetworkPolicy isn't enforced on Fargate. Pod SGs are the AWS-native replacement. |
+| Secrets → Kubernetes | **External Secrets Operator (ESO)**, installed by **Terraform** before Argo CD. AWS Secrets Manager is the only source of truth. Git holds only `ExternalSecret` pointers. **One `SecretStore` per namespace, each with its own IRSA role** that can read only its own secrets. Syncs every hour, so a rotated key arrives without a redeploy. | No secret values in Git **or** Terraform state. The Secrets Store CSI driver isn't an option: it needs a DaemonSet, which Fargate can't run. |
 | Monitoring | **kube-prometheus-stack** (Prometheus, Grafana, kube-state-metrics) set up for Fargate. Grafana is exposed on the internal ALB at `https://grafana.<zone>`. | The PDF forbids the CloudWatch agent. Grafana covers both the "CPU/memory" and "3rd-party pod-count dashboard" requirements. |
 | Scaling | **KEDA** with a Prometheus trigger on frontend requests/sec, `threshold: 10`, min 1, max 4 | Scales directly on the "more than 10 requests per second" metric the PDF asks for. |
 | Load generator | **k6** script (`ramping-arrival-rate`), run as a Job through the ALB URL, started with Argo CD "Sync" | Gives exact RPS steps, and the load really goes through the web URL. |
@@ -193,7 +194,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 - Extra cluster SG rule: 443 from `sg-ops`.
 - Fargate pod execution role, with the `aws:SourceArn` condition against the confused-deputy problem.
 - Fargate profiles:
-  - `system`: kube-system, argocd, keda, monitoring, external-dns
+  - `system`: kube-system (also hosts external-dns), argocd, keda, monitoring, external-secrets. A Fargate profile allows **at most 5 selectors**.
   - `apps`: lab-commit, loadgen
 - Add-ons:
   - `coredns` with `{"computeType":"Fargate"}`
@@ -227,13 +228,19 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 
 ### Phase 6: Cluster bootstrap (`50-cluster-bootstrap`; run while `scripts/eks-tunnel.sh` is active)
 - The tunnel runs `AWS-StartPortForwardingSessionToRemoteHost` from the ops instance to the EKS endpoint on 443, forwarded to `localhost:8443`. It sets the kubeconfig server to `https://localhost:8443` with `tls-server-name=<eks host>`.
-- Helm releases (versions pinned):
+- Helm releases (versions pinned), in this order:
+  - **external-secrets** (namespace `external-secrets`), installed **first**, because Argo CD needs its Git key from it
   - **aws-load-balancer-controller**: IRSA, `clusterName`, **`vpcId` and `region` set explicitly** (Fargate has no IMDS), 2 replicas
   - **external-dns**: IRSA, `--aws-zone-type=private`, `domainFilters=[lab.internal]`, `txtOwnerId`
   - **argo-cd**: dex and notifications off, `server.insecure=true` (the ALB terminates TLS), Ingress at `argocd.<zone>`, `timeout.reconciliation=60s`
-- Kubernetes secrets: the Argo CD repo secret (read-only deploy key from Secrets Manager) and the Grafana admin secret (`random_password`).
+- Secrets through ESO (no secret values in Terraform state):
+  - IRSA role `lab-commit-eso-argocd`: `secretsmanager:GetSecretValue`/`DescribeSecret` on **only** `lab-commit/gitops-deploy-key/argocd-*`, plus `kms:Decrypt` on `alias/lab-commit-secrets` with `kms:ViaService = secretsmanager.us-east-1.amazonaws.com`. It trusts only the service account `argocd:eso-secretstore`.
+  - IRSA role `lab-commit-eso-monitoring`: the same, for **only** `lab-commit/grafana-admin-*`
+  - Terraform creates `SecretStore` + `ExternalSecret` in `argocd`. The result is the Argo CD repo secret (label `argocd.argoproj.io/secret-type: repository`, `url: git@github.com:gologolo24/lab-commit-gitops.git`, `sshPrivateKey`). Use a small local Helm chart, or a `kubectl` provider, so Terraform doesn't need the ESO CRDs at plan time.
+  - Secret `lab-commit/grafana-admin`: Terraform creates the container, and its value uses an **ephemeral** `random_password` plus the **write-only** `secret_string_wo`, so it's never stored in state.
+  - The **`codebuild` deploy key is never synced into the cluster.** Only CodeBuild can read it.
 - The **root Application** (app-of-apps) pointing at `lab-commit-gitops/apps/`.
-- **Done when** the internal ALB exists, `argocd.lab.internal` resolves from Windows, and the root app shows *Synced/Healthy*.
+- **Done when** the internal ALB exists, `argocd.lab.internal` resolves from Windows, the `ExternalSecret` shows `SecretSynced`, and the root app shows *Synced/Healthy*.
 
 ### Phase 7: GitOps repo content (Argo CD syncs it automatically)
 - `apps/`: one Application each for `monitoring`, `keda`, `backend`, `frontend`, `dashboards` (sync waves, `SkipDryRunOnMissingResource=true`, retries) and `loadgen` (**manual sync**).
@@ -244,7 +251,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
   - alertmanager off
   - Prometheus: emptyDir storage, 2-day retention, `serviceMonitorSelectorNilUsesHelmValues=false`
   - **cAdvisor scraped through the API-server proxy** (`/api/v1/nodes/<node>/proxy/metrics/cadvisor`), with `nodes/proxy` added to Prometheus RBAC
-  - Grafana: `admin.existingSecret`, dashboard sidecar on, Ingress `grafana.<zone>`
+  - Grafana: `admin.existingSecret` pointing at a Secret synced by ESO (the `monitoring` `SecretStore` + `ExternalSecret` live in this GitOps repo), dashboard sidecar on, Ingress `grafana.<zone>`
   - Argo CD sync option **`ServerSideApply=true`**, because the CRDs are too large otherwise
 - `charts/` (Helm 3, `apiVersion: v2`; `helm lint` plus kubeconform in pre-commit). Every pod has:
   - `runAsNonRoot`, `readOnlyRootFilesystem` (emptyDir `/tmp`), all capabilities dropped, `seccompProfile: RuntimeDefault`
@@ -339,7 +346,9 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 | CodePipeline role | `UseConnection` on one connection, the artifacts bucket, and start these 2 builds |
 | CodeBuild build role | ECR push to **its own repo**, its own log group, the artifacts bucket |
 | CodeBuild deploy role | Read **one secret** (the gitops write key), VPC ENI permissions, logs. **No EKS access.** |
-| Argo CD / KEDA / Prometheus / Grafana | **No AWS IAM at all** |
+| ESO, `argocd` store (IRSA) | Read **one secret** (`gitops-deploy-key/argocd`) + `kms:Decrypt` via Secrets Manager only |
+| ESO, `monitoring` store (IRSA) | Read **one secret** (`grafana-admin`) + `kms:Decrypt` via Secrets Manager only |
+| Argo CD / KEDA / Prometheus / Grafana | **No AWS IAM at all** (they get their secrets from ESO) |
 
 ## 6. Verification: requirement → proof (this table goes into the README)
 
@@ -361,6 +370,7 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 | Load generator + scale 1→4→1 at >10 rps | Sync loadgen in Argo CD; Grafana and `kubectl get hpa -w` |
 | Code in GitHub, CodePipeline deploys new version | 3 repos; v1.0.0 → v1.0.1 pipeline run with the smoke test |
 | Terraform | `terraform/stacks/*`, `terraform plan` shows no drift |
+| No secrets in Git or state | `secret-scan` (gitleaks) green on every PR. `terraform state pull \| grep -c 'PRIVATE KEY'` = 0. `kubectl get externalsecret -A` shows `SecretSynced`. |
 
 ## 7. Teardown (order matters)
 1. Delete the Argo CD root app with cascade, or delete all Ingresses. Wait until the ALB and the external-dns records are gone. Otherwise the VPC destroy hangs on ALB ENIs and SGs.
@@ -368,6 +378,9 @@ Laptop ──SSM Fleet Manager RDP──▶ Windows EC2 (no key, Chrome, CA trus
 3. Destroy 00 last. Empty the versioned state bucket before you do.
 
 ## 8. Gotchas to remember
+- A Fargate profile takes **at most 5** namespace selectors, so external-dns runs in `kube-system`.
+- `kubernetes_manifest` needs CRDs to exist at **plan** time. ESO CRDs installed in the same apply break it, so use a local chart or a kubectl provider for `SecretStore`/`ExternalSecret`.
+- Bootstrap order: ESO, then the Argo CD repo secret, then Argo CD. Argo CD can't pull anything before its key exists.
 - Fargate pods take about 60s to start. Every pod **must** have requests and limits.
 - Jobs on Fargate keep billing until deleted, so set `ttlSecondsAfterFinished`.
 - Build images as **amd64**.
