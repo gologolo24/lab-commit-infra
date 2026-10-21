@@ -13,6 +13,7 @@ provider "aws" {
     tags = {
       Project     = "lab-commit"
       Environment = "lab"
+      Creator     = var.creator
       ManagedBy   = "terraform"
       Stack       = "bootstrap"
       Repository  = "github.com/gologolo24/lab-commit-infra"

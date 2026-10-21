@@ -22,6 +22,7 @@ provider "aws" {
     tags = {
       Project     = local.env.name
       Environment = local.env.environment
+      Creator     = local.env.creator
       ManagedBy   = "terraform"
       Stack       = basename(abspath(path.module))
       Repository  = "github.com/gologolo24/lab-commit-infra"

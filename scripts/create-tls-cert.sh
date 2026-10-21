@@ -27,6 +27,9 @@ ZONE="${ZONE:-lab-commit.internal}"
 HOSTS="lab-commit-task grafana argocd"
 APP_FQDN="lab-commit-task.$ZONE"
 CA_PARAM="/lab-commit/tls/ca-cert"
+CREATOR="${CREATOR:-leib}"
+TAGS=(Key=Name,Value=lab-commit-app Key=Project,Value=lab-commit Key=Environment,Value=lab
+  "Key=Creator,Value=$CREATOR" Key=ManagedBy,Value=scripts/create-tls-cert.sh)
 
 case "$(openssl version)" in
   "OpenSSL 3."* | "OpenSSL 4."*) ;;
@@ -85,15 +88,16 @@ else
   arn=$(aws acm import-certificate \
     --certificate "fileb://$tmp/server.crt" --private-key "fileb://$tmp/server.key" \
     --certificate-chain "fileb://$tmp/ca.crt" \
-    --tags Key=Name,Value=lab-commit-app Key=Project,Value=lab-commit Key=ManagedBy,Value=scripts/create-tls-cert.sh \
     --query CertificateArn --output text)
   echo "   imported new $arn"
 fi
+aws acm add-tags-to-certificate --certificate-arn "$arn" --tags "${TAGS[@]}"
 
 echo "== 4. publish the CA certificate (public)"
 aws ssm put-parameter --name "$CA_PARAM" --type String --overwrite \
   --description "lab-commit root CA certificate (public). Clients trust it. Set by scripts/create-tls-cert.sh" \
   --value "file://$tmp/ca.crt" --query Version --output text | sed 's/^/   SSM parameter version: /'
+aws ssm add-tags-to-resource --resource-type Parameter --resource-id "$CA_PARAM" --tags "${TAGS[@]}"
 
 echo "== summary"
 echo "   ACM certificate : $arn"
