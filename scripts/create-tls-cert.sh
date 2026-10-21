@@ -27,9 +27,9 @@ ZONE="${ZONE:-lab-commit.internal}"
 HOSTS="lab-commit-task grafana argocd"
 APP_FQDN="lab-commit-task.$ZONE"
 CA_PARAM="/lab-commit/tls/ca-cert"
-CREATOR="${CREATOR:-leib}"
+OWNER="${OWNER:-leib}"
 TAGS=(Key=Name,Value=lab-commit-app Key=Project,Value=lab-commit Key=Environment,Value=lab
-  "Key=Creator,Value=$CREATOR" Key=ManagedBy,Value=scripts/create-tls-cert.sh)
+  "Key=Owner,Value=$OWNER" Key=ManagedBy,Value=scripts/create-tls-cert.sh)
 
 case "$(openssl version)" in
   "OpenSSL 3."* | "OpenSSL 4."*) ;;

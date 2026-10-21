@@ -10,8 +10,8 @@ variable "account_id" {
   default     = "788717064995"
 }
 
-variable "creator" {
-  description = "Creator tag on every resource."
+variable "owner" {
+  description = "Owner tag on every resource."
   type        = string
   default     = "leib"
 }
