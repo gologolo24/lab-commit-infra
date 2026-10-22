@@ -70,12 +70,14 @@ data "aws_iam_policy_document" "pipeline" {
     resources = [aws_kms_key.cicd.arn]
   }
 
+  # ARNs built from the names (not the project attributes), so a buildspec
+  # change doesn't show up as a policy change in the plan.
   statement {
     sid     = "OwnBuildsOnly"
     actions = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
     resources = [
-      aws_codebuild_project.build[each.key].arn,
-      aws_codebuild_project.deploy[each.key].arn,
+      for stage in ["build", "deploy"] :
+      "arn:aws:codebuild:${local.region}:${local.account_id}:project/${var.name}-${each.key}-${stage}"
     ]
   }
 }
