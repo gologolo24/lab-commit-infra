@@ -11,7 +11,7 @@ generator and a CodePipeline that releases new versions.
 |---|---|
 | App (from the Windows test client) | https://lab-commit-task.lab-commit.internal |
 | Argo CD / Grafana | https://argocd.lab-commit.internal · https://grafana.lab-commit.internal |
-| AWS | account `788717064995`, `us-east-1`, every resource tagged `Project=lab-commit`, `Owner=leib` |
+| AWS | account `788717064995`, `us-east-1`, every resource tagged `Project=lab-commit`, `Owner=candidate03` |
 | Status (2026-10-22) | every requirement below deployed and verified; frontend **1.0.1** and backend **1.0.2** released by the pipelines |
 
 Contents: [For reviewers](#for-reviewers) · [Architecture](#architecture) · [Repositories](#repositories) ·

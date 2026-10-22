@@ -27,7 +27,7 @@ ZONE="${ZONE:-lab-commit.internal}"
 HOSTS="lab-commit-task grafana argocd"
 APP_FQDN="lab-commit-task.$ZONE"
 CA_PARAM="/lab-commit/tls/ca-cert"
-OWNER="${OWNER:-leib}"
+OWNER="${OWNER:-candidate03}"
 TAGS=(Key=Name,Value=lab-commit-app Key=Project,Value=lab-commit Key=Environment,Value=lab
   "Key=Owner,Value=$OWNER" Key=ManagedBy,Value=scripts/create-tls-cert.sh)
 
