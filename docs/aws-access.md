@@ -78,3 +78,11 @@ No key pairs, no public IPs, no inbound security-group rules. Everything goes th
 | Encrypted + logged shell | `aws ssm start-session --target <instance-id> --document-name lab-commit-shell`: KMS-encrypted (`alias/lab-commit-ssm-sessions`) and logged to CloudWatch `/lab-commit/ssm-sessions` |
 
 **Shared account:** other candidates use this AWS account. AWS has only one account-wide Session Manager default (`SSM-SessionManagerRunShell`), and forcing our KMS key there would break their sessions. So we leave that default untouched (it didn't exist before us), and our own `lab-commit-shell` document applies only when a session names it.
+
+### When a tunnel stops working
+
+- **`kubectl` hangs or says `TLS handshake timeout`**, or the RDP window freezes: the SSM session behind the tunnel went stale (idle timeout, laptop sleep, network change). Press Ctrl+C in the tunnel's terminal and start `scripts/eks-tunnel.sh` / `scripts/rdp-tunnel.sh` again.
+- **`Enter MFA code`** (or `kubectl` fails with `getting credentials ... exit code 255`): the 1-hour role session expired. The CLI renews 15 minutes before the end, so about 45 minutes are usable. Renew it in your own terminal, then restart the tunnel:
+  ```bash
+  find ~/.aws/cli/cache -name '*.json' -delete; aws sts get-caller-identity --profile commit-lab-mfa
+  ```
