@@ -14,11 +14,48 @@ generator and a CodePipeline that releases new versions.
 | AWS | account `788717064995`, `us-east-1`, every resource tagged `Project=lab-commit`, `Owner=leib` |
 | Status (2026-10-22) | every requirement below deployed and verified; frontend **1.0.1** and backend **1.0.2** released by the pipelines |
 
-Contents: [Architecture](#architecture) · [Repositories](#repositories) ·
+Contents: [For reviewers](#for-reviewers) · [Architecture](#architecture) · [Repositories](#repositories) ·
 [Requirements → how to verify](#requirements--how-to-verify) · [Demos](#demos) ·
 [Security](#security) · [Access](#access) · [Deploy from scratch](#deploy-from-scratch) ·
 [Day-2 operations](#day-2-operations) · [Problems found and fixed](#problems-found-and-fixed) ·
 [Lab-only shortcuts](#lab-only-shortcuts-and-limitations) · [Cost and teardown](#cost-and-teardown)
+
+---
+
+## For reviewers
+
+You need **read access to the three repos** (you're invited on GitHub) and **your own AWS access** to
+account `788717064995`, region **us-east-1** (N. Virginia). No kubectl and no local tools.
+
+1. **Get the passwords.** In the AWS console, open **Secrets Manager**, then open each secret and
+   click **Retrieve secret value**:
+
+   | Secret | For |
+   |---|---|
+   | `lab-commit/windows/labuser` | the Windows test client, user `labuser` |
+   | `lab-commit/argocd-reviewer` | Argo CD, user `reviewer`: sees every application and may only **SYNC `lab-loadgen`** (the load test) |
+   | `lab-commit/grafana-admin` | Grafana, user `admin` |
+
+2. **Connect to the Windows test client.** Go to **Systems Manager → Fleet Manager →
+   `lab-commit-windows` → Node actions → Connect → Connect with Remote Desktop**, choose
+   *User credentials*, and log in as `labuser`. There is no key pair and no open port: RDP runs
+   through SSM.
+3. **In Chrome on Windows** (the lab CA is trusted there, so you get a valid HTTPS padlock):
+   - https://lab-commit-task.lab-commit.internal is the app: "Hello Lab-Commit v1.0.1" plus the
+     value from the database, refreshed every 5 s.
+   - https://argocd.lab-commit.internal: log in as `reviewer`.
+   - https://grafana.lab-commit.internal: dashboards **Lab-Commit: Pods & Load** and
+     **Lab-Commit: CPU & Memory**.
+
+   These names exist only inside the VPC. From the internet they don't even resolve.
+4. **Run the load test yourself.** In Argo CD, open `lab-loadgen` → **SYNC** → **SYNCHRONIZE**. Then
+   watch Grafana "Pods & Load" (time range *Last 30 minutes*) for about 20 minutes: the frontend
+   goes 1 → 2 → 3 → 4 pods and back to 1.
+5. **Everything else:** the [requirements table](#requirements--how-to-verify) gives a console or CLI
+   check for every PDF item.
+
+If the Windows instance was stopped to save cost, start `lab-commit-windows` in the EC2 console
+first. It takes about 2 minutes to come back.
 
 ---
 
@@ -89,8 +126,8 @@ terraform/
   envs/lab/
     env.yaml          the ONLY settings file for the lab (CIDRs, zone, versions, sizes, repos)
     10-network → 20-eks → 30-data → 40-access → 50-cluster-bootstrap → 60-cicd   (one state file each)
-scripts/              tf.sh, create-tls-cert.sh, create-gitops-deploy-keys.sh, delete-default-vpc.sh,
-                      eks-tunnel.sh, rdp-tunnel.sh, set-db-value.sh
+scripts/              tf.sh, create-tls-cert.sh, create-gitops-deploy-keys.sh, create-argocd-reviewer.sh,
+                      delete-default-vpc.sh, eks-tunnel.sh, rdp-tunnel.sh, set-db-value.sh
 docs/                 aws-access.md, PLAN.md (original plan), screenshots/
 ```
 
@@ -124,7 +161,7 @@ Results below were captured on **2026-10-22** with the read-only commands shown
 | 15 | > 10 req/s → another frontend pod, up to 4 | **KEDA** ScaledObject on Prometheus: `ceil(page loads per second / 10)`, min 1, max 4 | run the load test | 1 → 2 → 3 → **4** → 1 ([recording](#2-load-test-1--4--1)) |
 | 16 | Load generator | k6 Job (manual Argo CD sync) through the real HTTPS URL, certificate verified | Argo CD → `lab-loadgen` → SYNC | 21,750 requests, **0 failed** |
 | 17 | Code in GitHub; CodePipeline deploys a new frontend version | `modules/cicd`: CodePipeline V2 per service, path-filtered triggers, CodeBuild in the VPC, GitOps commit, smoke test | bump `frontend/VERSION`, merge | **1.0.0 → 1.0.1** live in ~4.5 min, smoke test green |
-| 18 | Terraform, security best practice | everything above is Terraform except the 3 key-generating scripts (by design, see [Security](#security)) | `scripts/tf.sh lab <stack> plan` | `No changes` on every stack |
+| 18 | Terraform, security best practice | everything above is Terraform except the 4 secret-generating scripts (by design, see [Security](#security)) | `scripts/tf.sh lab <stack> plan` | `No changes` on every stack |
 
 ---
 
@@ -198,6 +235,7 @@ with MFA, pods use IRSA, AWS services use service roles with confused-deputy con
 | `lab-commit-codepipeline-<svc>` | use the GitHub connection, start its own 2 builds | |
 | Windows / ops instance profiles | SSM; Windows also its own password secret and the CA | |
 | Argo CD, KEDA, Prometheus, Grafana | **no AWS permissions** | |
+| Argo CD user `reviewer` | read everything, **sync `lab-loadgen` only** | Argo CD RBAC; no other user has a default role |
 
 **Network.**
 - No public subnets, no public IPs, no inbound rules on any instance. Internet egress only through
@@ -219,6 +257,8 @@ with MFA, pods use IRSA, AWS services use service roles with confused-deputy con
   enters the cluster.
 - TLS: `scripts/create-tls-cert.sh` imports the server key into ACM and **throws the CA key away**,
   so nobody can mint more trusted certificates. The CA *certificate* (public) lives only in SSM.
+- Argo CD reviewer: `scripts/create-argocd-reviewer.sh` writes the password to Secrets Manager.
+  Argo CD gets only its bcrypt hash.
 - gitleaks runs in CI and as a pre-commit hook in all three repos.
 
 **Workloads.**
@@ -243,7 +283,7 @@ All access goes through AWS Systems Manager. Details in [docs/aws-access.md](doc
 | kubectl | `scripts/eks-tunnel.sh` (keep open), then `kubectl --context lab-commit …` |
 | Windows test client | `scripts/rdp-tunnel.sh` + Windows App → `localhost:53389`, or Fleet Manager → Remote Desktop. User `labuser`; password: `aws secretsmanager get-secret-value --secret-id lab-commit/windows/labuser` |
 | Grafana login | `aws secretsmanager get-secret-value --secret-id lab-commit/grafana-admin` |
-| Argo CD login | `admin`, password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' \| base64 -d` |
+| Argo CD login | reviewers: `reviewer`, password in secret `lab-commit/argocd-reviewer`. Admin: `admin`, password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' \| base64 -d` |
 
 ## Deploy from scratch
 
@@ -258,7 +298,8 @@ yq, OpenSSL 3. AWS profiles as in [docs/aws-access.md](docs/aws-access.md).
    - `scripts/delete-default-vpc.sh --delete us-east-1`
 3. **Stacks**, in order: `scripts/tf.sh lab 10-network apply`, then `20-eks`, `30-data`, `40-access`.
 4. **Cluster bootstrap**: start `scripts/eks-tunnel.sh`, then `scripts/tf.sh lab 50-cluster-bootstrap apply`.
-   Argo CD then installs everything in `lab-commit-gitops` by itself.
+   Argo CD then installs everything in `lab-commit-gitops` by itself. Then run
+   `scripts/create-argocd-reviewer.sh` to set the reviewer login.
 5. **CI/CD**: `scripts/tf.sh lab 60-cicd apply`. Then, **once, in the console**: Developer Tools →
    Settings → Connections → `lab-commit-github` → *Update pending connection*, and install the
    AWS Connector GitHub App on `lab-commit-app` **only**.
@@ -277,6 +318,7 @@ A new environment is `cp -r terraform/envs/lab terraform/envs/<new>` plus a new 
 | Run the load test | Argo CD → `lab-loadgen` → SYNC (no FORCE). The previous run is replaced. Watch Grafana "Lab-Commit: Pods & Load" |
 | Rotate the Windows / Grafana password | bump `windows_password_version` / `grafana_password_version` in `env.yaml`, apply |
 | Rotate the GitOps deploy keys | `scripts/create-gitops-deploy-keys.sh` |
+| Rotate the Argo CD reviewer password | `scripts/create-argocd-reviewer.sh` (tunnel running) |
 | Renew the TLS certificate | `scripts/create-tls-cert.sh`: re-imports into the same ACM ARN and publishes the new CA to SSM. k6 and the pipeline read the CA on every run; Windows trusts it on its daily setup run (or run the `lab-commit-windows-setup` association now) |
 
 ## Problems found and fixed

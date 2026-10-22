@@ -28,6 +28,17 @@ resource "aws_secretsmanager_secret_version" "grafana_admin" {
   secret_string_wo_version = var.grafana_password_version
 }
 
+# Argo CD "reviewer" login: read-only, may only SYNC lab-loadgen (RBAC in
+# releases.tf). Argo CD needs a bcrypt hash of the password inside argocd-secret,
+# which Terraform can't produce from an ephemeral value, so the value is set by
+# scripts/create-argocd-reviewer.sh (password -> here, hash -> argocd-secret).
+resource "aws_secretsmanager_secret" "argocd_reviewer" {
+  name                    = "${var.name}/argocd-reviewer"
+  description             = "Argo CD 'reviewer' login (read-only + sync lab-loadgen). Value set by scripts/create-argocd-reviewer.sh."
+  kms_key_id              = var.secrets_kms_key_arn
+  recovery_window_in_days = 7
+}
+
 locals {
   ca_cert_parameter_arn = "arn:aws:ssm:${local.region}:${local.account_id}:parameter${var.ca_cert_parameter}"
 
