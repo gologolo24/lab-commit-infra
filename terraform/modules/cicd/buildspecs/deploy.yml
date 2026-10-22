@@ -1,0 +1,84 @@
+# Deploy stage, the same for every service. Has no cluster access: it changes
+# Git, and Argo CD (which polls the GitOps repo) rolls the change out.
+# IMAGE_TAG and SOURCE_COMMIT come from the pipeline, everything else from the
+# CodeBuild project (GITOPS_DEPLOY_KEY from Secrets Manager, LAB_CA_CERT from SSM).
+#
+# 1. Set image.tag in apps/<service>/envs/<env>/values.yaml of the GitOps repo
+#    and push, with the repo's write deploy key (works for that repo only).
+# 2. Smoke test: wait until https://<app><SMOKE_PATH> reports the new version,
+#    through the internal ALB, with the certificate verified against the lab CA.
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    on-failure: ABORT
+    commands:
+      - curl -fsSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+      - echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
+      - chmod 755 /usr/local/bin/yq
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - install -d -m 700 "$HOME/.ssh"
+      - (umask 077 && printf '%s\n' "$GITOPS_DEPLOY_KEY" > "$HOME/.ssh/gitops_deploy_key")
+      - printf '%s\n' "$GITHUB_SSH_HOST_KEY" > "$HOME/.ssh/known_hosts"
+      - export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/gitops_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+      - git clone --quiet --depth 1 --branch "$GITOPS_BRANCH" "$GITOPS_REPO" "$HOME/gitops"
+
+  build:
+    on-failure: ABORT
+    commands:
+      - |
+        (
+        set -euo pipefail
+        cd "$HOME/gitops"
+        values="apps/$SERVICE/envs/$ENVIRONMENT/values.yaml"
+        for attempt in 1 2 3; do
+          yq -i '.image.tag = strenv(IMAGE_TAG)' "$values"
+          if git diff --quiet; then
+            echo "$values already has image.tag $IMAGE_TAG: nothing to commit"
+            exit 0
+          fi
+          git -c user.name="lab-commit-pipeline" -c user.email="pipeline@lab-commit.internal" \
+            commit --quiet -am "$SERVICE: deploy $IMAGE_TAG to $ENVIRONMENT" \
+            -m "By CodePipeline $PIPELINE_NAME from lab-commit-app@$SOURCE_COMMIT."
+          if git push --quiet origin "HEAD:$GITOPS_BRANCH"; then
+            echo "pushed: $(git log --oneline -1)"
+            exit 0
+          fi
+          echo "push rejected (attempt $attempt): another release was pushed first, retrying on top of it"
+          git fetch --quiet --depth 1 origin "$GITOPS_BRANCH"
+          git reset --quiet --hard FETCH_HEAD
+        done
+        echo "ERROR: could not push to $GITOPS_BRANCH"
+        exit 1
+        )
+
+  post_build:
+    on-failure: ABORT
+    commands:
+      - |
+        (
+        set -euo pipefail
+        printf '%s\n' "$LAB_CA_CERT" > "$HOME/lab-ca.crt"
+        url="$APP_URL$SMOKE_PATH"
+        deadline=$((SECONDS + SMOKE_TIMEOUT_SECONDS))
+        echo "waiting until $url reports $SMOKE_FIELD = $IMAGE_TAG (Argo CD sync + rollout)"
+        while :; do
+          live=$(curl -fsS --max-time 5 --cacert "$HOME/lab-ca.crt" "$url" 2>/dev/null | yq -p json "$SMOKE_FIELD" 2>/dev/null || true)
+          echo "$(date -u +%H:%M:%S) live: ${live:-no answer}"
+          if [ "$live" = "$IMAGE_TAG" ]; then
+            echo "OK: $SERVICE $IMAGE_TAG is live at $APP_URL"
+            exit 0
+          fi
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "ERROR: $SERVICE $IMAGE_TAG not live after ${SMOKE_TIMEOUT_SECONDS}s"
+            exit 1
+          fi
+          sleep 15
+        done
+        )
