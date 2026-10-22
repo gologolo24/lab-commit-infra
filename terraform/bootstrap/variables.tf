@@ -13,7 +13,7 @@ variable "account_id" {
 variable "owner" {
   description = "Owner tag on every resource."
   type        = string
-  default     = "leib"
+  default     = "candidate03"
 }
 
 variable "github_owner" {
