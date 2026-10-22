@@ -6,6 +6,10 @@ output "eso_role_arns" {
   value = module.cluster_bootstrap.eso_role_arns
 }
 
+output "argocd_reviewer_secret" {
+  value = module.cluster_bootstrap.argocd_reviewer_secret
+}
+
 output "grafana_admin_secret" {
   value = module.cluster_bootstrap.grafana_admin_secret
 }

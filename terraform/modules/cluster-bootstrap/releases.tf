@@ -140,7 +140,20 @@ resource "helm_release" "argo_cd" {
     global = { domain = local.argocd_fqdn }
     configs = {
       params = { "server.insecure" = true } # TLS ends at the ALB
-      cm     = { "timeout.reconciliation" = "60s" }
+      cm = {
+        "timeout.reconciliation" = "60s"
+        "accounts.reviewer"      = "login" # UI login only, no API keys
+      }
+      # Reviewers see everything and may only start the load test. Everyone
+      # else without a role gets nothing (policy.default is empty).
+      rbac = {
+        "policy.csv" = <<-EOT
+          p, role:reviewer, applications, sync, apps/lab-loadgen, allow
+          p, role:reviewer, logs, get, */*, allow
+          g, role:reviewer, role:readonly
+          g, reviewer, role:reviewer
+        EOT
+      }
       # The in-cluster cluster gets an "env" label: the ApplicationSets select on it.
       # A new environment = a new cluster secret with its own env label.
       clusterCredentials = {

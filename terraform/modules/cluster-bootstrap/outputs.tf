@@ -7,6 +7,11 @@ output "eso_role_arns" {
   value       = { for ns, m in module.irsa_eso_store : ns => m.arn }
 }
 
+output "argocd_reviewer_secret" {
+  description = "Secrets Manager secret with the Argo CD reviewer login."
+  value       = aws_secretsmanager_secret.argocd_reviewer.name
+}
+
 output "grafana_admin_secret" {
   description = "Secrets Manager secret with the Grafana admin login (value never in state)."
   value       = aws_secretsmanager_secret.grafana_admin.name
