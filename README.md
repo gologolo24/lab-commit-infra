@@ -11,8 +11,8 @@ generator and a CodePipeline that releases new versions.
 |---|---|
 | App (from the Windows test client) | https://lab-commit-task.lab-commit.internal |
 | Argo CD / Grafana | https://argocd.lab-commit.internal · https://grafana.lab-commit.internal |
-| AWS | account `788717064995`, `us-east-1`, every resource tagged `Project=lab-commit`, `Owner=candidate03` |
-| Status (2026-10-22) | every requirement below deployed and verified; frontend **1.0.1** and backend **1.0.2** released by the pipelines |
+| AWS | account `788717064995`, **`us-west-2`** (Oregon), every resource tagged `Project=lab-commit`, `Owner=candidate03` |
+| Status (2026-10-22) | every requirement below deployed and verified; frontend **1.0.1** and backend **1.0.2** released by the pipelines. First built in `us-east-1` by mistake, then [moved to `us-west-2`](#region-move-us-east-1--us-west-2) |
 
 Contents: [For reviewers](#for-reviewers) · [Architecture](#architecture) · [Repositories](#repositories) ·
 [Requirements → how to verify](#requirements--how-to-verify) · [Demos](#demos) ·
@@ -29,7 +29,7 @@ The three repositories are **public** on GitHub, so no invite is needed:
 [lab-commit-app](https://github.com/gologolo24/lab-commit-app) and
 [lab-commit-gitops](https://github.com/gologolo24/lab-commit-gitops).
 To see the running system you need **your own AWS access** to account `788717064995`, region
-**us-east-1** (N. Virginia). No kubectl and no local tools.
+**us-west-2** (US West, Oregon). No kubectl and no local tools.
 
 1. **Get the passwords.** In the AWS console, open **Secrets Manager**, then open each secret and
    click **Retrieve secret value**:
@@ -129,11 +129,11 @@ Results below were captured on **2026-10-22** with the read-only commands shown
 | # | PDF requirement | How it's built | Verify | Result |
 |---|---|---|---|---|
 | 1 | Assume a role for privileged access | IAM user → `lab-commit-admin` role with **MFA**, 1 h sessions; Terraform, kubectl and the CLI use only this role. See [docs/aws-access.md](docs/aws-access.md) | `aws sts get-caller-identity` | `assumed-role/lab-commit-admin/candidate03` |
-| 2 | Delete the default VPC | `scripts/delete-default-vpc.sh` (dry run by default, skips VPCs still in use) | `aws ec2 describe-vpcs --filters Name=isDefault,Values=true` | none in us-east-1 |
+| 2 | Delete the default VPC | `scripts/delete-default-vpc.sh` (dry run by default, skips VPCs still in use) | `aws ec2 describe-vpcs --filters Name=isDefault,Values=true` | none in us-west-2 |
 | 3 | VPC + 2 private subnets, routes, limited SGs | `modules/network`: 10.20.0.0/16, `/19` in 1a and 1b, no public IPs; **Regional NAT gateway** (needs no public subnet); 10 VPC endpoints; one SG per role, every rule explicit; default SG has no rules; flow logs (KMS) | `aws ec2 describe-route-tables --filters Name=vpc-id,Values=<vpc>` | subnet routes: `local`, `0.0.0.0/0 → nat-…`, S3 endpoint. **0 routes to an IGW** |
 | 4 | EKS 1.36, private, **no node groups** | `modules/eks`: private endpoint only, `API` auth mode, KMS secrets encryption, control-plane logs; Fargate profiles `system` + `apps` | `aws eks describe-cluster --name lab-commit` · `aws eks list-nodegroups --cluster-name lab-commit` · `kubectl get nodes` | `1.36`, public access `False`; **0** node groups; all 26 nodes are `fargate-ip-…` (one per pod) |
 | 5 | Load balancer controller + ALB with SSL termination, self-signed cert in ACM | AWS Load Balancer Controller 3.6.0 (IRSA); one **internal** ALB shared by app, Argo CD and Grafana (IngressGroup); `scripts/create-tls-cert.sh` imports the cert | `aws elbv2 describe-listeners --load-balancer-arn <alb>` · `aws acm describe-certificate --certificate-arn <arn>` | ALB `internal`; **one listener: 443 HTTPS**, `ELBSecurityPolicy-TLS13-1-2-Res-2021-06`; cert `IMPORTED`, `ISSUED` |
-| 6 | Route 53 record `lab-commit-task.<zone>`, ACM | **private** hosted zone `lab-commit.internal`; external-dns (IRSA, this zone only) creates records from Ingress hosts | `aws route53 list-resource-record-sets --hosted-zone-id Z018099732BP2XLRWMPPD` | `lab-commit-task`, `argocd`, `grafana` → internal ALB; zone `PrivateZone: true` |
+| 6 | Route 53 record `lab-commit-task.<zone>`, ACM | **private** hosted zone `lab-commit.internal`; external-dns (IRSA, this zone only) creates records from Ingress hosts | `aws route53 list-resource-record-sets --hosted-zone-id Z08700521O6F2QB814QKQ` | `lab-commit-task`, `argocd`, `grafana` → internal ALB; zone `PrivateZone: true` |
 | 7 | Not publicly accessible; surf only the secured URL | internal ALB, private zone, no `:80` listener, ALB security group allows 443 only, no public IPs anywhere | `dig lab-commit-task.lab-commit.internal` from the laptop · ALB listeners (row 5) | does **not** resolve outside the VPC; the only listener is HTTPS 443 |
 | 8 | A CD tool on the cluster | Argo CD 3.5.5 (Terraform), **ApplicationSets** generate one app per folder of the gitops repo | Argo CD UI, or `kubectl -n argocd get applications` | 6 apps `Synced/Healthy` |
 | 9 | Frontend shows "Hello Lab-Commit X" (version), Helm 3 | FastAPI frontend, chart `apps/frontend` (`apiVersion: v2`) | open the URL on Windows | "Hello Lab-Commit **v1.0.1**" ([screenshot](#demos)) |
@@ -279,7 +279,7 @@ yq, OpenSSL 3. AWS profiles as in [docs/aws-access.md](docs/aws-access.md).
 2. **Keys and certificate**:
    - `scripts/create-gitops-deploy-keys.sh` (needs `gh auth login`)
    - `scripts/create-tls-cert.sh`
-   - `scripts/delete-default-vpc.sh --delete us-east-1`
+   - `scripts/delete-default-vpc.sh --delete us-west-2`
 3. **Stacks**, in order: `scripts/tf.sh lab 10-network apply`, then `20-eks`, `30-data`, `40-access`.
 4. **Cluster bootstrap**: start `scripts/eks-tunnel.sh`, then `scripts/tf.sh lab 50-cluster-bootstrap apply`.
    Argo CD then installs everything in `lab-commit-gitops` by itself. Then run
@@ -319,6 +319,23 @@ Each one is fixed in the code.
 | Grafana CrashLoopBackOff at 0.25 vCPU | plugin loading took > 2.5 min, and the liveness probe killed it | 0.5 vCPU, liveness starts after 120 s |
 | Prometheus Operator and External Secrets failed on Fargate | both default to port 10250, which Fargate's kubelet uses | moved to 10260 / 9443 |
 
+## Region move (us-east-1 → us-west-2)
+
+The lab was first built in `us-east-1` by mistake; Commit asked for `us-west-2`. It was moved on
+2026-10-22 by tearing everything down and rebuilding it with the same code. The changes:
+
+- `env.yaml`: the region and the zone names.
+- `backend.hcl`: the new state bucket.
+- The S3 bucket names now include the region, because S3 names are global and a just-deleted name
+  can stay blocked for a while.
+
+The move also exercised the [teardown](#cost-and-teardown) for real. After the move, every stack
+plans `No changes`, both pipelines released frontend 1.0.1 and backend 1.0.2 again (smoke tests
+green), and every Argo CD app is `Synced/Healthy`. Nothing of the lab is left in `us-east-1`.
+
+The demo screenshots, timings and IDs in [Demos](#demos) were captured on the first build, in
+`us-east-1`, with the same code.
+
 ## Lab-only shortcuts and limitations
 
 - RDS: single-AZ, deletion protection off, no final snapshot; ECR `force_delete`; S3 `force_destroy`.
@@ -344,7 +361,7 @@ Each one is fixed in the code.
 Rough on-demand estimate: **~$20–25/day**. The main items are the ~25 Fargate pods (one small VM
 each), 9 interface VPC endpoints × 2 AZs, the Windows instance, the EKS control plane and the NAT
 gateway. To save money between reviews, stop the Windows instance
-(`aws ec2 stop-instances --instance-ids i-01af55c486191699c`).
+(EC2 → `lab-commit-windows` → Instance state → Stop).
 
 Teardown (order matters, or the VPC delete waits on the ALB's network interfaces). Not yet
 rehearsed end to end:
