@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Report or delete the default VPC in one or more regions.
 #
-#   scripts/delete-default-vpc.sh us-east-1               # dry run: report only
-#   scripts/delete-default-vpc.sh --delete us-east-1      # delete in one region
+#   scripts/delete-default-vpc.sh us-west-2               # dry run: report only
+#   scripts/delete-default-vpc.sh --delete us-west-2      # delete in one region
 #   scripts/delete-default-vpc.sh --delete --all-regions  # delete in every enabled region
 #
 # Safety:

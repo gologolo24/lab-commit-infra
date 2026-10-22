@@ -13,7 +13,7 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 # Interface endpoints, one ENI per subnet. Private DNS makes the normal
-# service hostnames (for example sts.us-east-1.amazonaws.com) resolve to them.
+# service hostnames (for example sts.us-west-2.amazonaws.com) resolve to them.
 resource "aws_vpc_endpoint" "interface" {
   for_each = var.interface_endpoints
 

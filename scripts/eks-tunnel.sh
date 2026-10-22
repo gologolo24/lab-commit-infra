@@ -15,7 +15,7 @@ set -euo pipefail
 
 NAME="${NAME:-lab-commit}"          # cluster name = name prefix in env.yaml
 export AWS_PROFILE="${AWS_PROFILE:-commit-lab}"
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-us-west-2}"
 LOCAL_PORT="${LOCAL_PORT:-8443}"
 
 command -v session-manager-plugin >/dev/null ||

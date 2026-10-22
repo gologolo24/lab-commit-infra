@@ -54,7 +54,7 @@ resource "aws_ecr_lifecycle_policy" "this" {
 # records who used it.
 #trivy:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "artifacts" {
-  bucket        = "${var.name}-cicd-artifacts-${local.account_id}"
+  bucket        = "${var.name}-cicd-artifacts-${local.account_id}-${local.region}"
   force_destroy = true # lab: teardown in one go
 }
 

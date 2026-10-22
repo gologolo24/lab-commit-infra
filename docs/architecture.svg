@@ -25,9 +25,9 @@
 
   <!-- zones -->
   <rect x="156" y="14" width="1130" height="612" rx="10" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
-  <text x="172" y="36" class="zone" fill="#9a3412">AWS account · us-east-1</text>
+  <text x="172" y="36" class="zone" fill="#9a3412">AWS account · us-west-2</text>
   <rect x="172" y="46" width="1098" height="566" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
-  <text x="188" y="68" class="zone" fill="#334155">VPC 10.20.0.0/16 · 2 private subnets (us-east-1a, us-east-1b) · no public subnets, no public IPs</text>
+  <text x="188" y="68" class="zone" fill="#334155">VPC 10.20.0.0/16 · 2 private subnets (us-west-2a, us-west-2b) · no public subnets, no public IPs</text>
   <rect x="626" y="86" width="500" height="514" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
   <text x="642" y="106" class="zone" fill="#1e3a8a">EKS 1.36 · Fargate only (0 node groups) · private API</text>
   <rect x="642" y="118" width="468" height="118" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>

@@ -21,7 +21,7 @@ set -euo pipefail
 
 NAME="${NAME:-lab-commit}"          # cluster name / secret prefix (name in env.yaml)
 export AWS_PROFILE="${AWS_PROFILE:-commit-lab}"
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-us-west-2}"
 SECRET_ID="$NAME/argocd-reviewer"
 ACCOUNT="reviewer"
 

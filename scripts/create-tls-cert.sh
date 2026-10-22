@@ -23,6 +23,9 @@
 # Needs: OpenSSL >= 3, aws CLI (lab-commit-admin role). Works with macOS bash 3.2.
 set -euo pipefail
 
+export AWS_PROFILE="${AWS_PROFILE:-commit-lab}"
+export AWS_REGION="${AWS_REGION:-us-west-2}"   # the lab region (env.yaml)
+
 ZONE="${ZONE:-lab-commit.internal}"
 HOSTS="lab-commit-task grafana argocd"
 APP_FQDN="lab-commit-task.$ZONE"
