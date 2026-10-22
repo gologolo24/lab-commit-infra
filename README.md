@@ -24,8 +24,12 @@ Contents: [For reviewers](#for-reviewers) · [Architecture](#architecture) · [R
 
 ## For reviewers
 
-You need **read access to the three repos** (you're invited on GitHub) and **your own AWS access** to
-account `788717064995`, region **us-east-1** (N. Virginia). No kubectl and no local tools.
+The three repositories are **public** on GitHub, so no invite is needed:
+[lab-commit-infra](https://github.com/gologolo24/lab-commit-infra) (this guide),
+[lab-commit-app](https://github.com/gologolo24/lab-commit-app) and
+[lab-commit-gitops](https://github.com/gologolo24/lab-commit-gitops).
+To see the running system you need **your own AWS access** to account `788717064995`, region
+**us-east-1** (N. Virginia). No kubectl and no local tools.
 
 1. **Get the passwords.** In the AWS console, open **Secrets Manager**, then open each secret and
    click **Retrieve secret value**:
@@ -109,6 +113,11 @@ docs/                 architecture.svg, release-flow.svg, aws-access.md, PLAN.md
 CI on every PR: `terraform fmt/validate`, `tflint`, `trivy config` (infra); ruff + pytest + an
 amd64 image build (app); `helm lint --strict` + `helm template` (gitops); `gitleaks` everywhere,
 also as a pre-commit hook.
+
+The repos are public, and nothing in them is secret: no passwords, keys or certificates. Every
+secret lives in AWS Secrets Manager (see [Security](#security)), and gitleaks checks every commit.
+Anyone can read the repos. Only the owner can push, plus CodeBuild, which can only push image tags
+to the GitOps repo with its own deploy key.
 
 ---
 
