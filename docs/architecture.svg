@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="704" viewBox="0 0 1300 704" role="img" aria-labelledby="title desc">
+  <title id="title">lab-commit runtime architecture</title>
+  <desc id="desc">A reviewer reaches the Windows test client over SSM and browses to the app through an internal HTTPS ALB; the frontend polls the backend every 5 seconds and the backend reads RDS with IAM authentication. Everything runs in a private VPC on EKS with Fargate only.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .h { font-size: 14px; font-weight: 600; fill: #ffffff; text-anchor: middle; }
+      .s { font-size: 12px; fill: #ffffff; text-anchor: middle; }
+      .zone { font-size: 13px; font-weight: 700; }
+      .note { font-size: 12px; fill: #334155; text-anchor: middle; }
+      .noteh { font-size: 12px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+      .lbl { font-size: 12px; fill: #1e293b; paint-order: stroke; stroke: #ffffff; stroke-width: 4px; stroke-linejoin: round; }
+      .leg { font-size: 12.5px; fill: #1e293b; }
+      .line { stroke: #475569; stroke-width: 1.7; fill: none; }
+      .dash { stroke-dasharray: 5 4; }
+      .badge circle { fill: #0f172a; }
+      .badge text { font-size: 12px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1300" height="704" rx="12" fill="#ffffff"/>
+
+  <!-- zones -->
+  <rect x="156" y="14" width="1130" height="612" rx="10" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="172" y="36" class="zone" fill="#9a3412">AWS account · us-east-1</text>
+  <rect x="172" y="46" width="1098" height="566" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+  <text x="188" y="68" class="zone" fill="#334155">VPC 10.20.0.0/16 · 2 private subnets (us-east-1a, us-east-1b) · no public subnets, no public IPs</text>
+  <rect x="626" y="86" width="500" height="514" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="642" y="106" class="zone" fill="#1e3a8a">EKS 1.36 · Fargate only (0 node groups) · private API</text>
+  <rect x="642" y="118" width="468" height="118" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="656" y="137" class="zone" fill="#166534">namespace lab-commit · the app</text>
+  <rect x="642" y="256" width="468" height="250" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="656" y="275" class="zone" fill="#3730a3">platform</text>
+
+  <!-- people -->
+  <rect x="12" y="157" width="128" height="56" rx="28" fill="#475569"/>
+  <text x="76" y="181" class="h">Reviewer</text>
+  <text x="76" y="198" class="s">AWS console</text>
+  <rect x="12" y="527" width="128" height="56" rx="28" fill="#475569"/>
+  <text x="76" y="551" class="h">Admin</text>
+  <text x="76" y="568" class="s">kubectl, Terraform</text>
+
+  <!-- access hosts (purple) -->
+  <rect x="196" y="150" width="170" height="70" rx="8" fill="#7c3aed"/>
+  <text x="281" y="174" class="h">Windows test client</text>
+  <text x="281" y="192" class="s">Chrome · lab CA trusted</text>
+  <text x="281" y="208" class="s">no key pair, no public IP</text>
+  <rect x="196" y="527" width="170" height="56" rx="8" fill="#7c3aed"/>
+  <text x="281" y="551" class="h">ops host</text>
+  <text x="281" y="568" class="s">tunnel to the EKS API</text>
+
+  <!-- network edge (orange) -->
+  <rect x="436" y="84" width="160" height="48" rx="6" fill="#ffedd5" stroke="#fb923c"/>
+  <text x="516" y="104" class="noteh" style="fill:#7c2d12">Route 53 private zone</text>
+  <text x="516" y="121" class="note" style="fill:#7c2d12">*.lab-commit.internal</text>
+  <line x1="516" y1="132" x2="516" y2="150" class="line dash"/>
+  <rect x="436" y="150" width="160" height="70" rx="8" fill="#ea580c"/>
+  <text x="516" y="174" class="h">Internal ALB</text>
+  <text x="516" y="192" class="s">HTTPS 443 only</text>
+  <text x="516" y="208" class="s">self-signed cert · ACM</text>
+
+  <!-- app (green) -->
+  <rect x="662" y="150" width="150" height="70" rx="8" fill="#16a34a"/>
+  <text x="737" y="178" class="h">frontend</text>
+  <text x="737" y="197" class="s">1 to 4 pods</text>
+  <rect x="942" y="150" width="150" height="70" rx="8" fill="#16a34a"/>
+  <text x="1017" y="178" class="h">backend</text>
+  <text x="1017" y="197" class="s">2 pods · internal only</text>
+
+  <!-- platform (blue) -->
+  <rect x="662" y="290" width="190" height="56" rx="8" fill="#2563eb"/>
+  <text x="757" y="313" class="h">k6 load test</text>
+  <text x="757" y="330" class="s">manual sync in Argo CD</text>
+  <rect x="662" y="362" width="190" height="56" rx="8" fill="#2563eb"/>
+  <text x="757" y="385" class="h">Argo CD</text>
+  <text x="757" y="402" class="s">syncs from Git every 60 s</text>
+  <rect x="662" y="434" width="190" height="56" rx="8" fill="#2563eb"/>
+  <text x="757" y="457" class="h">Prometheus, Grafana</text>
+  <text x="757" y="474" class="s">CPU, memory, pods</text>
+  <rect x="922" y="290" width="170" height="56" rx="8" fill="#2563eb"/>
+  <text x="1007" y="313" class="h">KEDA</text>
+  <text x="1007" y="330" class="s">10 req/s per frontend pod</text>
+
+  <rect x="662" y="526" width="190" height="56" rx="8" fill="#1e3a8a"/>
+  <text x="757" y="549" class="h">EKS API endpoint</text>
+  <text x="757" y="566" class="s">private only</text>
+  <rect x="872" y="522" width="236" height="64" rx="6" fill="#ffffff" stroke="#a5b4fc"/>
+  <text x="990" y="540" class="noteh">also running</text>
+  <text x="990" y="556" class="note">LB Controller, external-dns,</text>
+  <text x="990" y="572" class="note">External Secrets, CoreDNS</text>
+
+  <!-- data (teal) -->
+  <path d="M1142,160 a60,10 0 0,0 120,0 v62 a60,10 0 0,1 -120,0 z" fill="#0e7490"/>
+  <ellipse cx="1202" cy="160" rx="60" ry="10" fill="#155e75"/>
+  <text x="1202" y="190" class="h">RDS</text>
+  <text x="1202" y="207" class="s">PostgreSQL 18</text>
+  <text x="1202" y="223" class="s">private · KMS</text>
+
+  <!-- egress -->
+  <rect x="1142" y="420" width="120" height="74" rx="6" fill="#e2e8f0" stroke="#94a3b8"/>
+  <text x="1202" y="444" class="noteh">Regional NAT</text>
+  <text x="1202" y="461" class="note">+ VPC endpoints</text>
+  <text x="1202" y="478" class="note">egress only</text>
+  <line x1="1126" y1="457" x2="1142" y2="457" class="line dash"/>
+
+  <!-- main path (solid, numbered) -->
+  <path d="M140,185 H194" class="line" marker-end="url(#arrow)"/>
+  <path d="M366,185 H434" class="line" marker-end="url(#arrow)"/>
+  <path d="M596,185 H660" class="line" marker-end="url(#arrow)"/>
+  <path d="M812,185 H940" class="line" marker-end="url(#arrow)"/>
+  <path d="M1092,185 H1140" class="line" marker-end="url(#arrow)"/>
+  <g class="badge"><circle cx="167" cy="185" r="10"/><text x="167" y="189">1</text></g>
+  <g class="badge"><circle cx="400" cy="185" r="10"/><text x="400" y="189">2</text></g>
+  <g class="badge"><circle cx="611" cy="185" r="10"/><text x="611" y="189">3</text></g>
+  <g class="badge"><circle cx="876" cy="185" r="10"/><text x="876" y="189">4</text></g>
+  <g class="badge"><circle cx="1109" cy="185" r="10"/><text x="1109" y="189">5</text></g>
+
+  <!-- UIs through the ALB -->
+  <path d="M540,220 V390 H660" class="line" marker-end="url(#arrow)"/>
+  <path d="M500,220 V462 H660" class="line" marker-end="url(#arrow)"/>
+  <text x="596" y="384" class="lbl">UI</text>
+  <text x="596" y="456" class="lbl">UI</text>
+
+  <!-- load test, metrics, scaling (dashed) -->
+  <path d="M662,318 H580 V222" class="line dash" marker-end="url(#arrow)"/>
+  <text x="588" y="311" class="lbl">load</text>
+  <path d="M852,462 H1007 V348" class="line dash" marker-end="url(#arrow)"/>
+  <text x="912" y="456" class="lbl">req/s</text>
+  <path d="M1007,290 V248 H737 V222" class="line dash" marker-end="url(#arrow)"/>
+  <text x="1014" y="276" class="lbl">scales 1 to 4</text>
+
+  <!-- admin path -->
+  <path d="M140,555 H194" class="line dash" marker-end="url(#arrow)"/>
+  <path d="M366,555 H660" class="line dash" marker-end="url(#arrow)"/>
+  <text x="430" y="549" class="lbl">kubectl over SSM</text>
+
+  <!-- legend -->
+  <g class="badge"><circle cx="24" cy="652" r="10"/><text x="24" y="656">1</text></g>
+  <text x="40" y="656" class="leg">RDP over Session Manager: no key pair, no open port</text>
+  <g class="badge"><circle cx="452" cy="652" r="10"/><text x="452" y="656">2</text></g>
+  <text x="468" y="656" class="leg">HTTPS to lab-commit-task.lab-commit.internal</text>
+  <g class="badge"><circle cx="930" cy="652" r="10"/><text x="930" y="656">3</text></g>
+  <text x="946" y="656" class="leg">the ALB forwards to a frontend pod</text>
+  <g class="badge"><circle cx="24" cy="682" r="10"/><text x="24" y="686">4</text></g>
+  <text x="40" y="686" class="leg">the frontend asks the backend every 5 s</text>
+  <g class="badge"><circle cx="452" cy="682" r="10"/><text x="452" y="686">5</text></g>
+  <text x="468" y="686" class="leg">the backend reads RDS with a 15-minute IAM token, over TLS</text>
+  <line x1="920" y1="682" x2="950" y2="682" class="line dash"/>
+  <text x="958" y="686" class="leg">load test, metrics, scaling, admin</text>
+</svg>

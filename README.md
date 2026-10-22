@@ -61,55 +61,30 @@ first. It takes about 2 minutes to come back.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph laptop["Reviewer laptop"]
-    cli["AWS CLI<br/>assumed role + MFA"]
-  end
+**How you reach the app** (runtime):
 
-  subgraph aws["AWS us-east-1 · VPC 10.20.0.0/16 · 2 private subnets (1a, 1b) · no public subnets"]
-    direction LR
-    win["Windows Server 2025<br/>Chrome, lab CA trusted<br/>no key pair, no public IP"]
-    ops["ops host (AL2023)<br/>EKS API tunnel"]
-    alb["internal ALB · HTTPS 443 only<br/>self-signed cert in ACM"]
-    r53[("Route 53 private zone<br/>lab-commit.internal")]
+![Runtime architecture: reviewer → Windows test client (SSM) → internal HTTPS ALB → frontend → backend → RDS, all inside a private VPC on EKS Fargate](docs/architecture.svg)
 
-    subgraph eks["EKS 1.36 · private endpoint · Fargate only · 0 node groups"]
-      fe["frontend 1-4 pods<br/>KEDA: 10 req/s per pod"]
-      be["backend 2 pods"]
-      argo["Argo CD"]
-      mon["Prometheus + Grafana"]
-      k6["k6 load generator"]
-    end
+Chrome on the Windows test client resolves `lab-commit-task.lab-commit.internal` in the **private**
+Route 53 zone to the **internal** ALB (②). The ALB terminates TLS with the self-signed certificate
+imported into ACM, and forwards to a frontend pod (③). The frontend asks the backend every 5 seconds
+(④) and serves the last answer. The backend reads the newest row from RDS with a 15-minute IAM token
+over TLS (⑤). KEDA reads the request rate from Prometheus and runs 1 to 4 frontend pods. Nothing
+has a public IP: people come in through Session Manager (①), and traffic leaves only through the
+NAT gateway or the VPC endpoints.
 
-    rds[("RDS PostgreSQL 18<br/>private, encrypted")]
-    nat["Regional NAT gateway"]
-    cb["CodeBuild (in VPC)"]
-  end
+**How a new version ships** (release):
 
-  gh["GitHub<br/>app + gitops repos"]
-  cp["CodePipeline V2"]
+![Release flow: lab-commit-app → CodePipeline (Build, Deploy) → ECR and lab-commit-gitops → Argo CD → new pods, with a smoke test](docs/release-flow.svg)
 
-  cli -- "SSM port forward (RDP)" --> win
-  cli -- "SSM port forward (kubectl)" --> ops --> eks
-  win -- HTTPS --> alb
-  alb --> fe & argo & mon
-  fe -- "every 5 s" --> be -- "IAM auth + TLS" --> rds
-  k6 -- HTTPS --> alb
-  gh -- push --> cp --> cb -- "image tag commit" --> gh
-  argo -- "pulls every 60 s" --> gh
-  eks & cb -- "egress only" --> nat
-```
+1. A merged change to `frontend/**` starts only the frontend pipeline (①).
+2. CodeBuild tests the code, builds the image and pushes it to ECR. The ECR scan must show no
+   CRITICAL findings (②).
+3. The deploy step commits the new image tag to `lab-commit-gitops` (④).
+4. Argo CD pulls the change (⑤) and rolls it out (⑥).
+5. The pipeline's smoke test waits until the live site reports the new version (⑦).
 
-How a request flows: Chrome on the Windows client resolves `lab-commit-task.lab-commit.internal`
-in the **private** hosted zone to the **internal** ALB, which terminates TLS (self-signed certificate
-imported into ACM) and forwards to a frontend pod. The frontend asks the backend every 5 seconds and
-serves the last answer; the backend reads the newest row from RDS with a 15-minute IAM token.
-
-How a release flows: a push to `lab-commit-app/main` that changes `frontend/**` starts the
-frontend pipeline → CodeBuild tests and builds the image → ECR (scan) → CodeBuild commits the new
-image tag to `lab-commit-gitops` → Argo CD rolls it out → the pipeline's smoke test waits until
-the live site reports the new version. **CI never touches the cluster.**
+**CI never touches the cluster.** Its only write access is to the GitOps repo.
 
 ## Repositories
 
@@ -128,7 +103,7 @@ terraform/
     10-network → 20-eks → 30-data → 40-access → 50-cluster-bootstrap → 60-cicd   (one state file each)
 scripts/              tf.sh, create-tls-cert.sh, create-gitops-deploy-keys.sh, create-argocd-reviewer.sh,
                       delete-default-vpc.sh, eks-tunnel.sh, rdp-tunnel.sh, set-db-value.sh
-docs/                 aws-access.md, PLAN.md (original plan), screenshots/
+docs/                 architecture.svg, release-flow.svg, aws-access.md, PLAN.md (original plan), screenshots/
 ```
 
 CI on every PR: `terraform fmt/validate`, `tflint`, `trivy config` (infra); ruff + pytest + an
