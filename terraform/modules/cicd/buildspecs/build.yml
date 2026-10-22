@@ -1,10 +1,12 @@
 # Build stage, the same for every service. SERVICE, ECR_REPOSITORY_NAME and
 # ECR_REPOSITORY_URI come from the CodeBuild project; SOURCE_COMMIT from the pipeline.
 #
-# 1. The image tag is <service>/VERSION. If that tag is already in ECR the build
-#    stops: tags are immutable, so every release needs a version bump.
+# 1. The image tag is <service>/VERSION. Tags are immutable, so a version is
+#    built once: if the tag exists and was built from another commit, the build
+#    stops (bump VERSION). A retry of the same commit skips straight to step 4.
 # 2. Lint + unit tests (the Dockerfile's "test" stage).
-# 3. Build the linux/amd64 runtime image and push it.
+# 3. Build the linux/amd64 runtime image and push it as <version> and
+#    commit-<sha> (the second tag records which commit a version came from).
 # 4. Wait for the ECR scan; CRITICAL findings stop the release.
 # IMAGE_TAG is exported to the deploy stage.
 version: 0.2
@@ -24,9 +26,17 @@ phases:
           echo "ERROR: $SERVICE/VERSION must look like 1.2.3 (found '$IMAGE_TAG')"
           exit 1
         fi
+      - COMMIT_TAG="commit-${SOURCE_COMMIT:0:12}"
       - |
-        if aws ecr describe-images --repository-name "$ECR_REPOSITORY_NAME" --image-ids imageTag="$IMAGE_TAG" > /dev/null 2>&1; then
-          echo "ERROR: $ECR_REPOSITORY_NAME:$IMAGE_TAG already exists. Bump $SERVICE/VERSION to release a change."
+        tags=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY_NAME" --image-ids imageTag="$IMAGE_TAG" \
+          --query 'imageDetails[0].imageTags' --output text 2>/dev/null || true)
+        if [ -z "$tags" ]; then
+          SKIP_BUILD=no
+        elif printf '%s\n' $tags | grep -qx "$COMMIT_TAG"; then
+          echo "$IMAGE_TAG was already built from this commit (pipeline retry): skipping the build"
+          SKIP_BUILD=yes
+        else
+          echo "ERROR: $ECR_REPOSITORY_NAME:$IMAGE_TAG already exists (built from another commit). Bump $SERVICE/VERSION to release a change."
           exit 1
         fi
       - echo "Releasing $SERVICE $IMAGE_TAG from lab-commit-app@$SOURCE_COMMIT"
@@ -35,20 +45,40 @@ phases:
   build:
     on-failure: ABORT
     commands:
-      - docker build --target test "$SERVICE"
-      - >-
-        docker build --platform linux/amd64
-        --build-arg APP_VERSION="$IMAGE_TAG"
-        --label org.opencontainers.image.version="$IMAGE_TAG"
-        --label org.opencontainers.image.revision="$SOURCE_COMMIT"
-        --tag "$ECR_REPOSITORY_URI:$IMAGE_TAG"
-        "$SERVICE"
-      - docker push "$ECR_REPOSITORY_URI:$IMAGE_TAG"
+      - |
+        if [ "$SKIP_BUILD" = no ]; then
+          docker build --target test "$SERVICE" &&
+          docker build --platform linux/amd64 \
+            --build-arg APP_VERSION="$IMAGE_TAG" \
+            --label org.opencontainers.image.version="$IMAGE_TAG" \
+            --label org.opencontainers.image.revision="$SOURCE_COMMIT" \
+            --tag "$ECR_REPOSITORY_URI:$IMAGE_TAG" --tag "$ECR_REPOSITORY_URI:$COMMIT_TAG" \
+            "$SERVICE" &&
+          docker push "$ECR_REPOSITORY_URI:$IMAGE_TAG" &&
+          docker push "$ECR_REPOSITORY_URI:$COMMIT_TAG"
+        fi
 
   post_build:
     on-failure: ABORT
     commands:
-      - aws ecr wait image-scan-complete --repository-name "$ECR_REPOSITORY_NAME" --image-id imageTag="$IMAGE_TAG"
+      # Polled by hand: right after a push the scan may not exist yet, which
+      # makes `aws ecr wait image-scan-complete` fail at once.
+      - |
+        for attempt in $(seq 1 60); do
+          status=$(aws ecr describe-image-scan-findings --repository-name "$ECR_REPOSITORY_NAME" --image-id imageTag="$IMAGE_TAG" \
+            --query 'imageScanStatus.status' --output text 2>/dev/null || echo PENDING)
+          [ "$status" = COMPLETE ] && break
+          if [ "$status" = FAILED ] || [ "$status" = UNSUPPORTED_IMAGE ]; then
+            echo "ERROR: ECR scan $status"
+            exit 1
+          fi
+          echo "ECR scan: $status"
+          sleep 10
+        done
+        if [ "$status" != COMPLETE ]; then
+          echo "ERROR: ECR scan not complete after 10 minutes"
+          exit 1
+        fi
       - |
         counts=$(aws ecr describe-image-scan-findings --repository-name "$ECR_REPOSITORY_NAME" --image-id imageTag="$IMAGE_TAG" \
           --query 'imageScanFindings.findingSeverityCounts' --output json)
