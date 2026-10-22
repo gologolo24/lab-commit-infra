@@ -60,6 +60,12 @@ variable "argocd_deploy_key_secret_arn" {
   type        = string
 }
 
+variable "ca_cert_parameter" {
+  description = "SSM parameter with the lab root CA certificate (public; read by the load generator's SecretStore)."
+  type        = string
+  default     = "/lab-commit/tls/ca-cert"
+}
+
 variable "gitops_repo_url" {
   description = "GitOps repository (SSH URL)."
   type        = string

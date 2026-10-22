@@ -29,31 +29,51 @@ resource "aws_secretsmanager_secret_version" "grafana_admin" {
 }
 
 locals {
-  # namespace => secret ARN its SecretStore may read
+  ca_cert_parameter_arn = "arn:aws:ssm:${local.region}:${local.account_id}:parameter${var.ca_cert_parameter}"
+
+  # namespace => what its SecretStore may read (and nothing else)
   eso_stores = {
-    argocd     = var.argocd_deploy_key_secret_arn
-    monitoring = aws_secretsmanager_secret.grafana_admin.arn
+    argocd     = { secrets = [var.argocd_deploy_key_secret_arn], parameters = [], only = "one secret only" }
+    monitoring = { secrets = [aws_secretsmanager_secret.grafana_admin.arn], parameters = [], only = "one secret only" }
+    # The load generator verifies the app's TLS certificate against the lab CA.
+    # The CA certificate is public and lives only in SSM (String, no KMS).
+    loadgen = { secrets = [], parameters = [local.ca_cert_parameter_arn], only = "one parameter only" }
   }
 }
 
 data "aws_iam_policy_document" "eso_store" {
   for_each = local.eso_stores
 
-  statement {
-    sid       = "ReadOwnSecretOnly"
-    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-    resources = [each.value]
+  dynamic "statement" {
+    for_each = length(each.value.secrets) > 0 ? [1] : []
+    content {
+      sid       = "ReadOwnSecretOnly"
+      actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      resources = each.value.secrets
+    }
   }
 
-  statement {
-    sid       = "DecryptViaSecretsManagerOnly"
-    actions   = ["kms:Decrypt"]
-    resources = [var.secrets_kms_key_arn]
+  dynamic "statement" {
+    for_each = length(each.value.secrets) > 0 ? [1] : []
+    content {
+      sid       = "DecryptViaSecretsManagerOnly"
+      actions   = ["kms:Decrypt"]
+      resources = [var.secrets_kms_key_arn]
 
-    condition {
-      test     = "StringEquals"
-      variable = "kms:ViaService"
-      values   = ["secretsmanager.${local.region}.amazonaws.com"]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${local.region}.amazonaws.com"]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(each.value.parameters) > 0 ? [1] : []
+    content {
+      sid       = "ReadOwnParameterOnly"
+      actions   = ["ssm:GetParameter", "ssm:GetParameters"]
+      resources = each.value.parameters
     }
   }
 }
@@ -63,7 +83,7 @@ module "irsa_eso_store" {
   for_each = local.eso_stores
 
   name              = "${var.name}-irsa-eso-${each.key}"
-  description       = "External Secrets store in ${each.key} (${each.key}/eso-secretstore): one secret only"
+  description       = "External Secrets store in ${each.key} (${each.key}/eso-secretstore): ${each.value.only}"
   oidc_provider_arn = var.oidc_provider_arn
   oidc_provider     = var.oidc_provider
   namespace         = each.key
