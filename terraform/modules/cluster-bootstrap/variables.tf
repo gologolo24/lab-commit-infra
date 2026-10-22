@@ -102,7 +102,11 @@ variable "platform_chart_repos" {
 variable "platform_namespaces" {
   description = "Namespaces the 'platform' AppProject may deploy to."
   type        = list(string)
-  default     = ["monitoring", "keda"]
+  # kube-system: KEDA needs one RoleBinding there (its metrics API server must read
+  # the API server's auth settings, extension-apiserver-authentication-reader), and
+  # kube-prometheus-stack adds a Service there to scrape CoreDNS. The project still
+  # only accepts charts from the GitOps repo and the approved chart repositories.
+  default = ["monitoring", "keda", "kube-system"]
 }
 
 variable "app_namespaces" {
