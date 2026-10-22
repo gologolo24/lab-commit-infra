@@ -146,7 +146,9 @@ stays read-only. The row was written at 10:18:13 UTC and the frontend served it 
 k6 sends a fixed number of requests per second through the HTTPS ALB, in steps chosen so each
 maps to a pod count (8 → 15 → 25 → 45 req/s, then 0):
 
-![Grafana: pods and load](docs/screenshots/04-grafana-load-test-1-4-1.png)
+| At the peak (10:37): 4 pods, 45 req/s | After the test (10:45): back to 1 |
+|---|---|
+| ![Grafana at 4 pods](docs/screenshots/03-grafana-scaled-up-to-4-pods.png) | ![Grafana: pods and load](docs/screenshots/04-grafana-load-test-1-4-1.png) |
 
 Recorded from the cluster every 15 s (`kubectl get hpa keda-hpa-frontend`, deployment status):
 
