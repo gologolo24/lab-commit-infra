@@ -12,7 +12,7 @@ generator and a CodePipeline that releases new versions.
 | App (from the Windows test client) | https://lab-commit-task.lab-commit.internal |
 | Argo CD / Grafana | https://argocd.lab-commit.internal · https://grafana.lab-commit.internal |
 | AWS | account `788717064995`, **`us-west-2`** (Oregon), every resource tagged `Project=lab-commit`, `Owner=candidate03` |
-| Status (2026-10-22) | every requirement below deployed and verified; frontend **1.0.1** and backend **1.0.2** released by the pipelines. First built in `us-east-1` by mistake, then [moved to `us-west-2`](#region-move-us-east-1--us-west-2) |
+| Status (2026-10-22) | every requirement below deployed and verified; frontend **1.0.1** and backend **1.0.2** released by the pipelines |
 
 Contents: [For reviewers](#for-reviewers) · [Architecture](#architecture) · [Repositories](#repositories) ·
 [Requirements → how to verify](#requirements--how-to-verify) · [Demos](#demos) ·
@@ -160,30 +160,31 @@ Results below were captured on **2026-10-22** with the read-only commands shown
 `set-db-value.sh` runs `python -m app.set_value 42` as a one-off Job: the backend's image, the
 `db-migrator` service account (its role may read only the RDS master secret) and the
 `lab-commit/db-access` label (the Security Group for Pods that RDS accepts). The app's own DB user
-stays read-only. The row was written at 10:18:13 UTC and the frontend served it on its next poll.
+stays read-only. The row was written at 16:11:56 UTC and the frontend served it on its next poll.
 
 ### 2. Load test: 1 → 4 → 1
 
 k6 sends a fixed number of requests per second through the HTTPS ALB, in steps chosen so each
 maps to a pod count (8 → 15 → 25 → 45 req/s, then 0):
 
-| At the peak (10:37): 4 pods, 45 req/s | After the test (10:45): back to 1 |
+| At the peak: 4 pods, 45 req/s | After the test: back to 1 |
 |---|---|
 | ![Grafana at 4 pods](docs/screenshots/03-grafana-scaled-up-to-4-pods.png) | ![Grafana: pods and load](docs/screenshots/04-grafana-load-test-1-4-1.png) |
 
-Recorded from the cluster every 15 s (`kubectl get hpa keda-hpa-frontend`, deployment status):
+Recorded from the cluster every ~20 s (`kubectl get hpa keda-hpa-frontend`, deployment status),
+on 2026-10-22:
 
 | UTC | load | req/s per pod (KEDA metric) | desired → ready pods |
 |---|---|---|---|
-| 10:25–10:29 | 8/s | 8 | **1** |
-| 10:29:34 | 15/s | 12.5 > 10 | 2 → **2** at 10:30:30 |
-| 10:33:19 | 25/s | 11.9 | 3 → **3** at 10:34:15 |
-| 10:36:45 | 45/s | 10.8 | 4 (5 needed, max 4) → **4** at 10:37:22 |
-| 10:40:47 | k6 done | → 0 | |
-| 10:41:41 · 10:42:11 · 10:42:41 | 0 | 0 | 4 → 3 → 2 → **1** (one pod per 30 s, after 60 s of lower load) |
+| 16:03–16:06 | 8/s | 8 | **1** |
+| 16:07:06 | 15/s | 11.3 > 10 | 2 → **2** at 16:08:08 |
+| 16:11:03 | 25/s | > 10 (25/s on 2 pods) | 3 → **3** at 16:11:44 |
+| 16:14:13 | 45/s | 11.6 | 4 (5 needed, max 4) → **4** at 16:14:54 |
+| 16:18:19 | k6 done | → 0 | |
+| 16:19:23 · 16:20:05 · 16:20:26 | 0 | 0 | 4 → 3 → 2 → **1** (one pod at a time, after 60 s of lower load) |
 
 k6 summary: 21,750 requests, 0 failed; 43,500/43,500 checks passed (HTTP 200 and the page text);
-p95 latency 3.1 ms. A new Fargate pod takes ~50–60 s from decision to ready.
+p95 latency 3.3 ms. A new Fargate pod takes ~40–60 s from decision to ready.
 
 ![Grafana: CPU and memory](docs/screenshots/05-grafana-cpu-memory.png)
 
@@ -318,23 +319,6 @@ Each one is fixed in the code.
 | Grafana "No data", HTTP 503 during the load test | 1 GB Fargate pod. Fargate counts only declared requests, and Grafana's sidecars had none (~807 MiB used) | Grafana 2 GiB plus sidecar requests, so a 3 GB pod |
 | Grafana CrashLoopBackOff at 0.25 vCPU | plugin loading took > 2.5 min, and the liveness probe killed it | 0.5 vCPU, liveness starts after 120 s |
 | Prometheus Operator and External Secrets failed on Fargate | both default to port 10250, which Fargate's kubelet uses | moved to 10260 / 9443 |
-
-## Region move (us-east-1 → us-west-2)
-
-The lab was first built in `us-east-1` by mistake; Commit asked for `us-west-2`. It was moved on
-2026-10-22 by tearing everything down and rebuilding it with the same code. The changes:
-
-- `env.yaml`: the region and the zone names.
-- `backend.hcl`: the new state bucket.
-- The S3 bucket names now include the region, because S3 names are global and a just-deleted name
-  can stay blocked for a while.
-
-The move also exercised the [teardown](#cost-and-teardown) for real. After the move, every stack
-plans `No changes`, both pipelines released frontend 1.0.1 and backend 1.0.2 again (smoke tests
-green), and every Argo CD app is `Synced/Healthy`. Nothing of the lab is left in `us-east-1`.
-
-The demo screenshots, timings and IDs in [Demos](#demos) were captured on the first build, in
-`us-east-1`, with the same code.
 
 ## Lab-only shortcuts and limitations
 
