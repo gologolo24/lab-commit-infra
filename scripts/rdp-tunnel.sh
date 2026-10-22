@@ -16,7 +16,7 @@ set -euo pipefail
 
 NAME="${NAME:-lab-commit}"
 export AWS_PROFILE="${AWS_PROFILE:-commit-lab}"
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-us-west-2}"
 LOCAL_PORT="${LOCAL_PORT:-53389}"
 
 command -v session-manager-plugin >/dev/null ||

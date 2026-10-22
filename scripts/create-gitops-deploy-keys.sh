@@ -16,6 +16,9 @@
 # Works with macOS's bash 3.2 (no associative arrays).
 set -euo pipefail
 
+export AWS_PROFILE="${AWS_PROFILE:-commit-lab}"
+export AWS_REGION="${AWS_REGION:-us-west-2}"   # the lab region (env.yaml)
+
 REPO="gologolo24/lab-commit-gitops"
 SECRET_PREFIX="lab-commit/gitops-deploy-key"
 

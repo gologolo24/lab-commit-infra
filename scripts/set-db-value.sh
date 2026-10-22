@@ -19,7 +19,7 @@ set -euo pipefail
 NAME="${NAME:-lab-commit}"          # cluster / RDS name = name prefix in env.yaml
 NS="${NS:-lab-commit}"              # app namespace
 export AWS_PROFILE="${AWS_PROFILE:-commit-lab}"
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-us-west-2}"
 
 value="${1:-}"
 [[ "$value" =~ ^-?[0-9]+$ ]] || { echo "usage: $0 <integer>" >&2; exit 1; }

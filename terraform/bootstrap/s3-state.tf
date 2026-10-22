@@ -2,7 +2,7 @@
 # (use_lockfile = true, Terraform >= 1.10), so no DynamoDB table is needed.
 
 locals {
-  state_bucket_name = "lab-commit-tfstate-${var.account_id}"
+  state_bucket_name = "lab-commit-tfstate-${var.account_id}-${var.region}"
 }
 
 # Accepted for the lab (AWS-0089, LOW): server access logging needs a second
